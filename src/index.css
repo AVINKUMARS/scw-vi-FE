@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global theme variables */
+:root {
+  --bg: #ffffff;
+  --text: #0a0a0a;
+  --panel: #f7f7f8;
+  --border: #e5e5e5;
+  --brand: #2F7EC0;
+  --brand-tint: rgba(47, 126, 192, 0.10);
+}
+
+.dark {
+  --bg: #0b0b0c;
+  --text: #e5e7eb;
+  --panel: #111214;
+  --border: #26272b;
+  --brand: #2F7EC0;
+  --brand-tint: rgba(47, 126, 192, 0.18);
+}
+
+/* Apply global colors */
+html, body, #root {
+  height: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  overflow-y: auto; /* enable vertical scrolling */
+  overflow-x: hidden; /* prevent horizontal scroll */
+}
+
+/* Google Sign-In Button Styling */
+div[data-callback] {
+  display: flex !important;
+  justify-content: center !important;
+}
+
+/* Style Google Button Container */
+[data-text="signin_with"],
+[data-text="signup_with"],
+[data-text="continue_with"] {
+  width: 100% !important;
+}
+
+/* Ensure Google button renders properly */
+.g_id_signin {
+  width: 100% !important;
+  display: flex !important;
+  justify-content: center !important;
+}
+
+/* Google button wrapper */
+div > div[role="button"] {
+  margin: 0 auto !important;
+}
+
+/* Google Identity iframe styling */
+iframe {
+  border: none !important;
+}
+
+/* Composer focus styles: hide borders and focus rings */
+.composer:focus-within {
+  /* Keep default border; remove any glow */
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+}
+.composer textarea {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+.composer textarea:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+/* Keep button focus minimal, but allow box to show focus */
+/* Remove heavy focus ring from buttons while keeping the wrapper highlight */
+.composer button:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.composer button:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
