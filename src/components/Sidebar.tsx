@@ -180,7 +180,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
           {!collapsed && (historyOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
         </button>
 
-        <div className="flex-1 min-h-0 overflow-y-auto text-neutral-800 dark:text-neutral-200">
+        <div className="flex-1 min-h-0 overflow-y-auto text-neutral-800 dark:text-neutral-200 [&::-webkit-scrollbar]:hidden">
           {historyOpen && !collapsed && (
             <div className="grid gap-1 text-sm">
               {loadingChats && <span className="opacity-70 px-2.5">Loading…</span>}
