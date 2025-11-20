@@ -263,15 +263,15 @@ export default function ProcessHealthDashboard() {
   ]
 
   if (err) {
-    return <div className="min-h-screen p-6 bg-slate-50 dark:bg-neutral-900 text-red-600">{err}</div>
+    return <div className="h-full min-h-0 p-6 bg-slate-50 dark:bg-neutral-900 text-red-600">{err}</div>
   }
 
   if (!me && !err) {
-    return <div className="min-h-screen p-6 bg-slate-50 dark:bg-neutral-900">Loading…</div>
+    return <div className="h-full min-h-0 p-6 bg-slate-50 dark:bg-neutral-900">Loading…</div>
   }
 
   return (
-    <div className="min-h-screen p-6 bg-slate-50 dark:bg-neutral-900">
+    <div className="h-full min-h-0 p-6 bg-slate-50 dark:bg-neutral-900">
       <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-neutral-100">
         Process Health Score
       </h1>

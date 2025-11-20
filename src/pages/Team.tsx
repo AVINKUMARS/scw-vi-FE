@@ -208,15 +208,15 @@ export default function TeamHealthDashboard() {
   ]
 
   if (err) {
-    return <div className="min-h-screen p-6 bg-gray-50 dark:bg-neutral-900 text-red-600">{err}</div>
+    return <div className="h-full min-h-0 p-6 bg-gray-50 dark:bg-neutral-900 text-red-600">{err}</div>
   }
 
   if (!me && !err) {
-    return <div className="min-h-screen p-6 bg-gray-50 dark:bg-neutral-900">Loading…</div>
+    return <div className="h-full min-h-0 p-6 bg-gray-50 dark:bg-neutral-900">Loading…</div>
   }
 
   return (
-    <div className="min-h-screen p-6 bg-gray-50 dark:bg-neutral-900">
+    <div className="h-full min-h-0 p-6 bg-gray-50 dark:bg-neutral-900">
       <h1 className="text-3xl font-bold mb-4 text-gray-900 dark:text-neutral-100">
         Team Health Score
       </h1>

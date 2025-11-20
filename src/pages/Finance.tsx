@@ -312,7 +312,7 @@ export default function FinanceHealthDashboard() {
   if (!me || !sales) return <p className="p-6">Loading finance data…</p>;
 
   return (
-    <div className="min-h-screen p-6 bg-gray-50 dark:bg-neutral-900">
+    <div className="h-full min-h-0 p-6 bg-gray-50 dark:bg-neutral-900">
       <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">
         Finance Health Score
       </h1>

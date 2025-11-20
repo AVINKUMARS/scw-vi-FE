@@ -289,7 +289,7 @@ export default function SalesDashboard() {
   if (error) return <div className="p-8 text-red-600">{error}</div>
 
   return (
-    <div className="p-6 min-h-screen bg-gray-50 dark:bg-neutral-950">
+    <div className="p-6 h-full min-h-0 bg-gray-50 dark:bg-neutral-950">
       <div className="max-w-7xl mx-auto">
 
         {/* SALES HEALTH SCORE + STAGE */}

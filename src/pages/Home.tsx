@@ -349,7 +349,7 @@ export default function GrowthDashboard() {
   }
 
   return (
-    <div className="min-h-screen p-10 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 dark:from-neutral-950 dark:via-blue-950/40 dark:to-purple-950/40">
+    <div className="h-full min-h-0 p-10 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 dark:from-neutral-950 dark:via-blue-950/40 dark:to-purple-950/40">
       <div className="max-w-7xl mx-auto">
         {/* 1️⃣ Goal Progress */}
         <div className="bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/30 dark:border-neutral-800/40 p-10 mb-12 relative overflow-hidden">

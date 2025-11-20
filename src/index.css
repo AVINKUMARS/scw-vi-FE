@@ -25,11 +25,31 @@
 html, body, #root {
   height: 100%;
 }
+html {
+  background: var(--bg);
+  overscroll-behavior: none; /* prevent page bounce on trackpads */
+}
 body {
   background: var(--bg);
   color: var(--text);
   overflow-y: auto; /* enable vertical scrolling */
   overflow-x: hidden; /* prevent horizontal scroll */
+  overscroll-behavior: none; /* prevent top/bottom white bounce */
+}
+#root { background: var(--bg); }
+
+/* Hide scrollbars while keeping scroll functionality */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+/* Prevent scroll chaining inside panes so the page doesn't bounce */
+.pane-scroll {
+  overscroll-behavior: contain;
 }
 
 /* Google Sign-In Button Styling */
