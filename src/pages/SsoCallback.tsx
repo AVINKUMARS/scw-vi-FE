@@ -12,7 +12,7 @@ export default function SsoCallback() {
       const token = extractTokenFromLocation(window.location)
       if (token) {
         saveToken(token)
-        nav('/home', { replace: true })
+        nav('/new-chat', { replace: true })
         return
       }
       setErr('Missing token in SSO callback')
@@ -29,4 +29,3 @@ export default function SsoCallback() {
     </div>
   )
 }
-

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { saveToken } from '../lib/auth'
@@ -8,12 +8,27 @@ import { CheckCircle2 } from 'lucide-react'
 
 const CLIENT_ID = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string | undefined
 
+type BizType = { id: number; category: string; sub_category: string; business_type: string }
+
 export default function Register() {
     const nav = useNavigate()
-    const [form, setForm] = useState({ name: '', email: '', password: '', confirm_password: '', whatsapp_number: '' })
+    const [form, setForm] = useState({
+        name: '',
+        email: '',
+        password: '',
+        confirm_password: '',
+        whatsapp_number: '',
+        business_name: '',
+        industry_type: '',
+        sub_industry: ''
+    })
     const [err, setErr] = useState('')
     const [loading, setLoading] = useState(false)
     const gsiBtnRef = useRef<HTMLDivElement>(null)
+    const [bizTypes, setBizTypes] = useState<BizType[]>([])
+    const [search, setSearch] = useState('')
+    const [openSuggest, setOpenSuggest] = useState(false)
+    const suggestRef = useRef<HTMLDivElement>(null)
 
     const requestOtp = async () => {
         await api.post('/auth/request-otp', { phone_number: form.whatsapp_number })
@@ -23,9 +38,11 @@ export default function Register() {
         e.preventDefault()
         setErr('')
         setLoading(true)
-        try {
-            await requestOtp()
-            nav('/verify-otp', { state: { phone: form.whatsapp_number, pendingForm: form } })
+            try {
+            if (!form.business_name) throw new Error('Business name is required')
+            if (!form.sub_industry) throw new Error('Please select a business type')
+                await requestOtp()
+                nav('/verify-otp', { state: { phone: form.whatsapp_number, pendingForm: form } })
         } catch (e: any) {
             setErr(e?.response?.data?.error ?? 'Failed to request OTP')
         } finally {
@@ -89,6 +106,52 @@ export default function Register() {
 
         return () => { cancelled = true; clearInterval(iv) }
     }, [nav])
+
+    // Load all business types once for searchable sub-category input
+    useEffect(() => {
+        let cancelled = false
+        api.get('/business-types')
+            .then(({ data }) => {
+                if (cancelled) return
+                const items: BizType[] = Array.isArray(data?.data) ? data.data : []
+                setBizTypes(items)
+            })
+            .catch(() => {})
+        return () => { cancelled = true }
+    }, [])
+
+    // Close suggestions on outside click
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (!suggestRef.current) return
+            const target = e.target as Node
+            if (!suggestRef.current.contains(target)) setOpenSuggest(false)
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [])
+
+    const businessTypeOptions = useMemo(() => {
+        // Unique business_type -> representative BizType
+        const map = new Map<string, BizType>()
+        for (const it of bizTypes) {
+            if (!map.has(it.business_type)) map.set(it.business_type, it)
+        }
+        let opts = Array.from(map.keys())
+        if (search.trim()) {
+            const q = search.toLowerCase()
+            opts = opts.filter(s => s.toLowerCase().includes(q))
+        }
+        return { list: opts.slice(0, 50), map }
+    }, [bizTypes, search])
+
+    const selectBusinessType = (bt: string) => {
+        const item = businessTypeOptions.map.get(bt)
+        const cat = item?.category || ''
+        setForm(prev => ({ ...prev, sub_industry: bt, industry_type: cat }))
+        setSearch(bt)
+        setOpenSuggest(false)
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-white to-blue-50 flex items-center justify-center px-4 py-8">
@@ -160,6 +223,51 @@ export default function Register() {
                                 onChange={e => setForm({ ...form, whatsapp_number: e.target.value })}
                                 required
                             />
+                        </div>
+
+                        <div>
+                            <FormInput
+                                label="Business Name"
+                                placeholder="Your company name"
+                                value={form.business_name}
+                                onChange={e => setForm({ ...form, business_name: e.target.value })}
+                                required
+                            />
+                        </div>
+
+                        <div className="relative" ref={suggestRef}>
+                            <label className="grid gap-1.5">
+                                <span className="text-xs opacity-75">Business Type *</span>
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={e => { setSearch(e.target.value) }}
+                                    onClick={() => setOpenSuggest(true)}
+                                    placeholder="Type to search e.g., Footwear Manufacturing"
+                                    className="px-3 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
+                                    aria-autocomplete="list"
+                                />
+                            </label>
+                            {/* hidden required input bound to actual value */}
+                            <input type="text" value={form.sub_industry} onChange={() => {}} required hidden />
+                            {openSuggest && businessTypeOptions.list.length > 0 && (
+                                <div className="absolute z-20 mt-1 w-full max-h-60 overflow-auto bg-white border border-gray-200 rounded-lg shadow">
+                                    {businessTypeOptions.list.map((bt) => {
+                                        return (
+                                        <button
+                                            key={bt}
+                                            type="button"
+                                            onClick={() => selectBusinessType(bt)}
+                                            className={`w-full text-left px-4 py-2 hover:bg-purple-50 ${search === bt ? 'bg-purple-50' : ''}`}
+                                        >
+                                            <div className="flex items-center">
+                                                <span className="text-sm text-gray-900">{bt}</span>
+                                            </div>
+                                        </button>
+                                        )
+                                    })}
+                                </div>
+                            )}
                         </div>
 
                         {err && (

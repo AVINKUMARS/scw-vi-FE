@@ -52,6 +52,70 @@ body {
   overscroll-behavior: contain;
 }
 
+/* Transparent scrollbar utility */
+.scrollbar-transparent {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: transparent transparent; /* Firefox */
+}
+.scrollbar-transparent::-webkit-scrollbar {
+  width: 6px; /* WebKit */
+  background: transparent;
+}
+.scrollbar-transparent::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.scrollbar-transparent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Subtly visible scrollbar utility (light/dark aware) */
+.scrollbar-subtle {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: rgba(0,0,0,0.22) transparent; /* Firefox light */
+}
+.dark .scrollbar-subtle {
+  scrollbar-color: rgba(255,255,255,0.28) transparent; /* Firefox dark */
+}
+.scrollbar-subtle::-webkit-scrollbar {
+  width: 6px; /* WebKit */
+  height: 6px;
+}
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.22);
+  border-radius: 9999px;
+}
+.dark .scrollbar-subtle::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.28);
+}
+
+/* Edge-only colored scrollbar: transparent track, thin colored edge/thumb */
+.scrollbar-edge {
+  scrollbar-width: thin;              /* Firefox size */
+  scrollbar-color: rgba(0,0,0,0.25) transparent; /* Firefox: thumb color, track transparent */
+}
+.dark .scrollbar-edge {
+  scrollbar-color: rgba(255,255,255,0.32) transparent;
+}
+.scrollbar-edge::-webkit-scrollbar {
+  width: 8px;  /* slightly wider to allow edge line */
+  height: 8px;
+  background: transparent;
+}
+.scrollbar-edge::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-edge::-webkit-scrollbar-thumb {
+  background: transparent;            /* no fill */
+  border-right: 4px solid rgba(0,0,0,0.25); /* colored edge only */
+  border-radius: 9999px;
+}
+.dark .scrollbar-edge::-webkit-scrollbar-thumb {
+  border-right-color: rgba(255,255,255,0.32);
+}
+
 /* Google Sign-In Button Styling */
 div[data-callback] {
   display: flex !important;

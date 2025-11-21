@@ -50,8 +50,8 @@ export default function VerifyMobile() {
         setLoading(true)
         try {
             await api.post('/auth/verify-otp', { phone_number: phoneNumber, otp })
-            // Phone is now verified, redirect to setup
-            nav('/setup', { replace: true })
+            // Phone is now verified, redirect to new chat
+            nav('/new-chat', { replace: true })
         } catch (e: any) {
             setErr(e?.response?.data?.error ?? 'OTP verification failed')
         } finally {

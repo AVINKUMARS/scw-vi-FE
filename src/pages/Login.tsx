@@ -16,6 +16,21 @@ export default function Login() {
   const [err, setErr] = useState('')
   const gsiBtnRef = useRef<HTMLDivElement>(null)
 
+  // Prefill email from localStorage or URL param
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      const fromParam = url.searchParams.get('email')
+      const fromStore = localStorage.getItem('last_login_email') || ''
+      const initial = fromParam || fromStore
+      if (initial) setEmail(initial)
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem('last_login_email', email || '') } catch {}
+  }, [email])
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErr('')
@@ -23,7 +38,7 @@ export default function Login() {
     try {
       const { data } = await api.post('/auth/login', { email, password })
       saveToken(data.token)
-      nav('/home')
+      nav('/new-chat')
     } catch (e: any) {
       setErr(e?.response?.data?.error ?? 'Login failed')
     } finally {
@@ -69,7 +84,7 @@ export default function Login() {
         } else if (needsSetup) {
           nav('/setup', { replace: true })
         } else {
-          nav('/home', { replace: true })
+          nav('/new-chat', { replace: true })
         }
       } catch (e: any) {
         const msg = e?.response?.data?.error || e?.message || 'Google sign-in failed'
@@ -100,142 +115,69 @@ export default function Login() {
     return () => { cancelled = true; clearInterval(iv) }
   }, [nav])
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-white to-blue-50 flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md">
-        {/* Header Section */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center mb-4">
-            <div className="h-12 w-12 bg-gradient-to-br from-purple-600 to-blue-600 rounded-xl flex items-center justify-center">
-              <span className="text-white text-xl font-bold">S</span>
-            </div>
+  const loginCard = (
+    <div className="w-full max-w-md">
+      <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">Welcome Back</h2>
+        <form onSubmit={onSubmit} className="grid gap-4">
+          <FormInput
+            label="Email Address"
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            required
+          />
+          <FormInput
+            label="Password"
+            type="password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            required
+          />
+          <div className="flex justify-end">
+            <Link to="/forgot-password" className="text-sm font-medium text-blue-600 hover:text-blue-700">Forgot password?</Link>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Scalingwolf AI</h1>
-          <p className="text-gray-600 text-sm">Scale your business with AI-powered insights</p>
+          {err && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{err}</div>
+          )}
+          <Button type="submit" loading={loading} size="lg" className="w-full">Sign In</Button>
+        </form>
+        <div className="flex items-center gap-3 my-6">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span className="text-gray-500 text-sm font-medium">or continue with</span>
+          <div className="flex-1 h-px bg-gray-200" />
         </div>
-
-        {/* Main Card */}
-        <div className="bg-white rounded-2xl shadow-lg p-8 mb-6 border border-gray-100">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Welcome Back</h2>
-
-          <form onSubmit={onSubmit} className="grid gap-4">
-            <div>
-              <FormInput
-                label="Email Address"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-              />
-            </div>
-
-            <div>
-              <FormInput
-                label="Password"
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="flex justify-end">
-              <Link
-                to="/forgot-password"
-                className="text-sm font-medium text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-blue-600 hover:opacity-80 transition"
-              >
-                Forgot password?
-              </Link>
-            </div>
-
-            {err && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2">
-                <span className="text-red-600 text-sm">{err}</span>
-              </div>
-            )}
-
-            <Button
-              type="submit"
-              loading={loading}
-              size="lg"
-              className="w-full mt-2"
-            >
-              Sign In
-            </Button>
-          </form>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-6">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-gray-500 text-sm font-medium">or continue with</span>
-            <div className="flex-1 h-px bg-gray-200" />
-          </div>
-
-          {/* Google Sign In */}
-          <div className="space-y-3">
-            {!CLIENT_ID && (
-              <p className="text-red-600 text-sm text-center bg-red-50 border border-red-200 rounded-lg p-3">
-                Missing VITE_GOOGLE_CLIENT_ID. Set it in your environment.
-              </p>
-            )}
-            <div
-              ref={gsiBtnRef}
-              id="google-signin-btn"
-              className="flex justify-center w-full"
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                minHeight: '56px',
-                width: '100%'
-              }}
-            ></div>
-            {/* Fallback button if Google doesn't load */}
-            {CLIENT_ID && (
-              <p className="text-xs text-center text-gray-500 mt-2">
-                Google button should appear above
-              </p>
-            )}
-          </div>
+        <div className="space-y-3">
+          {!CLIENT_ID && (
+            <p className="text-red-600 text-sm text-center bg-red-50 border border-red-200 rounded-lg p-3">Missing VITE_GOOGLE_CLIENT_ID. Set it in your environment.</p>
+          )}
+          <div
+            ref={gsiBtnRef}
+            id="google-signin-btn"
+            className="flex justify-center w-full"
+            style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '56px', width: '100%' }}
+          ></div>
+          {CLIENT_ID && (
+            <p className="text-xs text-center text-gray-500 mt-2">Google button should appear above</p>
+          )}
         </div>
-
-        {/* Benefits */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          <div className="text-center">
-            <div className="bg-purple-50 rounded-lg p-3 mb-2 flex justify-center">
-              <Zap className="w-5 h-5 text-purple-600" />
-            </div>
-            <p className="text-xs text-gray-600 font-medium">Fast & Easy</p>
-          </div>
-          <div className="text-center">
-            <div className="bg-blue-50 rounded-lg p-3 mb-2 flex justify-center">
-              <Shield className="w-5 h-5 text-blue-600" />
-            </div>
-            <p className="text-xs text-gray-600 font-medium">Secure</p>
-          </div>
-          <div className="text-center">
-            <div className="bg-cyan-50 rounded-lg p-3 mb-2 flex justify-center">
-              <Gauge className="w-5 h-5 text-cyan-600" />
-            </div>
-            <p className="text-xs text-gray-600 font-medium">Reliable</p>
-          </div>
-        </div>
-
-        {/* Register Link */}
         <div className="text-center pt-4">
           <p className="text-gray-700 text-sm">
             Don't have an account?{' '}
-            <Link
-              to="/register"
-              className="font-semibold text-purple-600 hover:text-blue-600 transition-colors duration-200 underline underline-offset-2"
-            >
-              Create one
-            </Link>
+            <Link to="/register" className="font-semibold text-blue-600 hover:text-blue-700 underline underline-offset-2">Register</Link>
           </p>
         </div>
       </div>
     </div>
   )
+
+  // Render as full page on /login; modal is used only from landing page
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-white to-blue-50 flex items-center justify-center px-4 py-8">
+      {loginCard}
+    </div>
+  )
 }
+

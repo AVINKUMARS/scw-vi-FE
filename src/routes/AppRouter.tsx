@@ -16,6 +16,7 @@ import Sales from '../pages/Sales'
 import Founder from '../pages/Founder'
 import Profile from '../pages/Profile'
 import Pricing from '../pages/Pricing'
+import LandingPage from '../pages/landingpage/LandingPage'
 import ProtectedRoute from '../components/ProtectedRoute'
 import Layout from '../components/Layout'
 
@@ -23,7 +24,8 @@ import Layout from '../components/Layout'
 export default function AppRouter() {
     return (
         <Routes>
-            <Route path="/" element={<Navigate to="/login" />} />
+            <Route path="/" element={<Navigate to="/landing" />} />
+            <Route path="/landing" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/verify-otp" element={<VerifyOtp />} />

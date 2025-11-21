@@ -6,7 +6,16 @@ import FormInput from '../components/FormInput'
 import Button from '../components/Button'
 import { MessageCircle, ArrowLeft, CheckCircle2 } from 'lucide-react'
 
-type PendingForm = { name: string; email: string; password: string; confirm_password: string; whatsapp_number: string }
+type PendingForm = {
+  name: string
+  email: string
+  password: string
+  confirm_password: string
+  whatsapp_number: string
+  business_name: string
+  industry_type: string
+  sub_industry: string
+}
 
 export default function VerifyOtp() {
     const nav = useNavigate()
@@ -25,7 +34,7 @@ export default function VerifyOtp() {
             await api.post('/auth/verify-otp', { phone_number: phone, otp })
             const { data } = await api.post('/auth/register', pending)
             saveToken(data.token)
-            nav('/setup')
+            nav('/new-chat')
         } catch (e: any) {
             setErr(e?.response?.data?.error ?? 'OTP verification failed')
         } finally {
