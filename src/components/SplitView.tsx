@@ -7,6 +7,7 @@ export default function SplitView({
   children,
   initialMode = 'split',
   initialLeftWidth = 360,
+  forceLeftWidth,
   minLeft = 280,
   maxLeft = 720,
   titleLeft = 'Chat',
@@ -19,6 +20,7 @@ export default function SplitView({
   children: React.ReactNode
   initialMode?: Mode
   initialLeftWidth?: number
+  forceLeftWidth?: number
   minLeft?: number
   maxLeft?: number
   titleLeft?: string
@@ -66,6 +68,19 @@ export default function SplitView({
     return () => { if (ro && el) ro.unobserve(el); window.removeEventListener('resize', onWin) }
   }, [minLeft, maxLeft])
 
+  // If a forced width is provided from parent, adopt it when in split mode
+  useEffect(() => {
+    const cm: Mode = (controlledMode ?? mode) as Mode
+    if (typeof forceLeftWidth === 'number' && cm === 'split') {
+      const el = containerRef.current
+      const cw = el ? el.getBoundingClientRect().width : (typeof window !== 'undefined' ? window.innerWidth : 1200)
+      const pctCap = Math.floor(cw * 0.6)
+      const maxByContainer = Math.max(minLeft, Math.min(maxLeft, pctCap, cw - minRight - dividerW))
+      const next = Math.max(minLeft, Math.min(maxByContainer, forceLeftWidth))
+      setLeftWidth(next)
+    }
+  }, [forceLeftWidth, controlledMode, mode, minLeft, maxLeft])
+
   const currentMode: Mode = controlledMode ?? mode
 
   const setModeUnified = (m: Mode) => {
@@ -104,6 +119,22 @@ export default function SplitView({
       window.removeEventListener('mouseup', onMouseUp)
     }
   }, [currentMode])
+
+  // When switching into split mode (from left/right), auto-balance to ~50%
+  const prevModeRef = useRef<Mode>(currentMode)
+  useEffect(() => {
+    const prev = prevModeRef.current
+    prevModeRef.current = currentMode
+    if (prev !== 'split' && currentMode === 'split' && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const cw = rect.width
+      const desired = Math.floor(cw * 0.5)
+      const pctCap = Math.floor(cw * 0.6)
+      const maxByContainer = Math.max(minLeft, Math.min(maxLeft, pctCap, cw - minRight - dividerW))
+      const next = Math.max(minLeft, Math.min(maxByContainer, desired))
+      setLeftWidth(next)
+    }
+  }, [currentMode, minLeft, maxLeft])
 
   const gridStyle: React.CSSProperties = useMemo(() => {
     if (currentMode === 'left') return { gridTemplateColumns: '1fr', gridTemplateAreas: '"left"', }

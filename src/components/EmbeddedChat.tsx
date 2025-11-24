@@ -52,6 +52,7 @@ export default function EmbeddedChat() {
           finalId = String(created.data?.chat_id)
         }
         setChatId(finalId)
+        try { localStorage.setItem('last_chat_id', String(finalId)) } catch {}
       } catch (e: any) {
         setError(e?.response?.data?.error ?? 'Failed to load chat list')
       }
@@ -72,6 +73,7 @@ export default function EmbeddedChat() {
           content: String(m.content ?? m.text ?? m.message ?? '')
         }))
         setMessages(mapped)
+        try { localStorage.setItem('last_chat_id', String(chatId)) } catch {}
       } catch (e: any) {
         setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load messages')
       }
@@ -286,6 +288,8 @@ export default function EmbeddedChat() {
           <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
+            onFocus={() => { try { window.dispatchEvent(new CustomEvent('embedded-chat-activate')) } catch {} }}
+            onInput={() => { try { window.dispatchEvent(new CustomEvent('embedded-chat-activate')) } catch {} }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()

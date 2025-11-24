@@ -1,448 +1,165 @@
-import React, { useEffect, useState } from 'react'
-import { DollarSign, ShoppingCart, Users, FileText, Activity, AlertTriangle, CheckCircle } from 'lucide-react'
-import { api } from '../lib/api'
+import React from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { BarChart3, TrendingUp, DollarSign, Users, PieChart, Activity } from "lucide-react";
 
-type SalesMetric = {
-  id: number
-  source_type: string
-  payload: { file_name?: string }
-  total_sales: number | null
-  bill_row_count: number | null
-  unique_bill_count: number | null
-  created_at: string
-}
+export default function SalesDashboardUI() {
+  const getColorClass = (value) => {
+    const num = parseFloat(value.replace(/[^0-9.-]/g, ""));
 
-export default function SalesDashboard() {
-  const [latestMetrics, setLatestMetrics] = useState<SalesMetric | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  // TEMP values until backend supports these
-  const customersLastMonth = 40
-  const customersCurrent = 50
-
-  const monthlyRevenueHistory = [15000, 16000, 18000, 17819]
-
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  const fetchData = async () => {
-    try {
-      const { data } = await api.get('/data/sales/latest')
-      setLatestMetrics(data)
-    } catch (e: any) {
-      setError(e?.response?.data?.error ?? 'Failed to load sales data.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const totalSales = latestMetrics?.total_sales ?? 0
-  const billCount = latestMetrics?.bill_row_count ?? 0
-  const uniqueBills = latestMetrics?.unique_bill_count ?? 0
-
-  const avgOrderValue = billCount > 0 ? totalSales / billCount : 0
-  const customers = uniqueBills || 1
-
-  // ===============================
-  // 🔵 SALES HEALTH SCORE LOGIC
-  // ===============================
-
-  // 1. Customer Growth Score
-  const growthRate =
-    customersLastMonth > 0
-      ? (customersCurrent - customersLastMonth) / customersLastMonth
-      : 0
-  const customerGrowthScore = Math.min(Math.max(growthRate * 100, 0), 100)
-
-  // 2. ARPC Score
-  const arpc = totalSales / customers
-
-  const [industry] = useState<'Retail' | 'Service' | 'Manufacturing'>('Retail')
-
-  let benchmarkMedian = 3000
-  if (industry === 'Service') benchmarkMedian = 30000
-  else if (industry === 'Manufacturing') benchmarkMedian = 100000
-
-  const arpcScore = Math.min((arpc / benchmarkMedian) * 100, 100)
-
-  // 3. Revenue Consistency Score
-  const last = monthlyRevenueHistory.at(-1) ?? 0
-  const prev = monthlyRevenueHistory.at(-2) ?? last
-  const revVarPercent =
-    prev > 0 ? Math.abs((last - prev) / prev) * 100 : 0
-
-  let revenueConsistencyScore = 0
-  if (revVarPercent < 10) revenueConsistencyScore = 95
-  else if (revVarPercent < 30) revenueConsistencyScore = 80
-  else revenueConsistencyScore = 55
-
-  // === Combined Sales Health Score ===
-  const salesHealthScore = Number(
-    (
-      customerGrowthScore * 0.4 +
-      arpcScore * 0.3 +
-      revenueConsistencyScore * 0.3
-    ).toFixed(1)
-  )
-
-  useEffect(() => {
-    try {
-      const score = Number.isFinite(salesHealthScore) ? salesHealthScore : 0
-      localStorage.setItem('score_sales', JSON.stringify({ score, at: Date.now() }))
-    } catch {}
-  }, [salesHealthScore])
-
-  // STAGE
-  function getStage(score: number) {
-    if (score >= 80) {
-      return {
-        label: 'High',
-        desc: 'Sales engine is performing well.',
-        pill: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-      }
-    }
-    if (score >= 60) {
-      return {
-        label: 'Moderate',
-        desc: 'Sales are healthy but can be more consistent and higher value.',
-        pill: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-      }
-    }
-    if (score >= 40) {
-      return {
-        label: 'Low',
-        desc: 'Sales are fragile — pipeline or pricing is weak.',
-        pill: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
-      }
-    }
-    return {
-      label: 'Critical',
-      desc: 'Sales system is at risk — needs urgent improvement.',
-      pill: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    }
-  }
-
-  // SALES INSIGHT ENGINE (for sub metrics)
-  function getSalesInsight(title: string, score: number) {
-    if (score >= 80)
-      return {
-        msg: "Strong performance — maintain consistency and scale proven strategies.",
-        severity: "good" as const,
-      }
-
-    if (score >= 60)
-      return {
-        msg: "Healthy but room to optimize — refine pricing, retention & sales cycle.",
-        severity: "ok" as const,
-      }
-
-    if (score >= 40)
-      return {
-        msg: "Below target — improve lead quality, customer value or conversion flow.",
-        severity: "warning" as const,
-      }
-
-    return {
-      msg: "Critical weakness — urgent fixes needed in sales process or product value.",
-      severity: "bad" as const,
-    }
-  }
-
-  // IMPROVEMENT ENGINE
-  type RecSeverity = 'critical' | 'major' | 'minor'
-
-  type Recommendation = {
-    title: string
-    description: string
-    severity: RecSeverity
-  }
-
-  type RoadmapStep = {
-    label: string
-    detail: string
-  }
-
-  function buildSalesRecommendations(): {
-    simpleList: string[]
-    cards: Recommendation[]
-    roadmap: RoadmapStep[]
-  } {
-    const simpleList: string[] = []
-    const cards: Recommendation[] = []
-    const roadmap: RoadmapStep[] = []
-
-    if (customerGrowthScore < 60) {
-      simpleList.push('Increase qualified lead flow and improve retention to grow customers month-over-month.')
-      cards.push({
-        title: 'Boost Customer Growth',
-        description: 'Tighten your lead sources, improve follow-up speed, and add simple win-back campaigns for churned customers.',
-        severity: customerGrowthScore < 40 ? 'critical' : 'major',
-      })
-      roadmap.push({
-        label: 'Step 1 — Improve lead & follow-up',
-        detail: 'Define SLAs for lead response times and ensure every warm lead gets at least 3–5 structured follow-ups.',
-      })
+    if (value.includes("%")) {
+      if (num >= 70) return "text-emerald-600";
+      if (num >= 40) return "text-yellow-500";
+      return "text-red-500";
     }
 
-    if (arpcScore < 60) {
-      simpleList.push('Increase ARPC by improving packaging, upsell, and adding higher-value offers.')
-      cards.push({
-        title: 'Increase Revenue per Customer',
-        description: 'Introduce bundles, tiers, or add-ons that encourage customers to upgrade or buy more frequently.',
-        severity: 'major',
-      })
-      roadmap.push({
-        label: 'Step 2 — Design a better offer ladder',
-        detail: 'Create “Good / Better / Best” offers so your best-fit customers have a clear reason to pay more.',
-      })
+    if (!isNaN(num)) {
+      if (num >= 1000) return "text-emerald-600";
+      if (num >= 300) return "text-yellow-500";
+      return "text-red-500";
     }
 
-    if (revenueConsistencyScore < 80) {
-      simpleList.push('Make sales more predictable by smoothing seasonality and stabilizing pipeline volume.')
-      cards.push({
-        title: 'Stabilize Revenue Consistency',
-        description: 'Create recurring campaigns, retainers or contracts that lock in more predictable monthly revenue.',
-        severity: revenueConsistencyScore < 60 ? 'major' : 'minor',
-      })
-      roadmap.push({
-        label: 'Step 3 — Add recurring revenue',
-        detail: 'Identify at least one part of your offer that can be sold as a subscription, retainer, or ongoing service.',
-      })
-    }
+    return "text-slate-900 dark:text-slate-200";
+  };
 
-    if (simpleList.length === 0) {
-      simpleList.push('Your sales health is strong — focus on scaling channel mix and sales team capacity.')
-      cards.push({
-        title: 'Scale Your Sales System',
-        description: 'Document your current winning playbook and train new reps to replicate top-performer behavior.',
-        severity: 'minor',
-      })
-      roadmap.push({
-        label: 'Step 1 — Codify your sales playbook',
-        detail: 'Write down scripts, objection handling, and follow-up sequences that already work in your best deals.',
-      })
-    }
-
-    roadmap.push({
-      label: 'Final Step — Review sales health monthly',
-      detail: 'Recalculate your sales health score and refine campaigns and offers every 30 days.',
-    })
-
-    return { simpleList, cards, roadmap }
-  }
-
-  const stage = getStage(Number.isFinite(salesHealthScore) ? salesHealthScore : 0)
-  const { simpleList, cards, roadmap } = buildSalesRecommendations()
-
-  const insights = [
-    {
-      title: "Customer Growth",
-      raw: customerGrowthScore,
-    },
-    {
-      title: "ARPC",
-      raw: arpcScore,
-    },
-    {
-      title: "Revenue Consistency",
-      raw: revenueConsistencyScore,
-    },
-  ]
-
-  const StatCard = ({ title, value, icon: Icon, color, insight }: any) => (
-    <div className="bg-white dark:bg-neutral-900 rounded-xl p-6 shadow border border-gray-200 dark:border-neutral-800">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-gray-500 dark:text-neutral-400">{title}</p>
-          <p className="text-3xl font-bold text-gray-900 dark:text-neutral-100">{value}</p>
-
-          {/* INSIGHT */}
-          {insight && (
-            <span
-              className={`
-                text-xs mt-3 px-2 py-1 rounded block
-                ${insight.severity === "good" &&
-                  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}
-                ${insight.severity === "ok" &&
-                  "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"}
-                ${insight.severity === "warning" &&
-                  "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300"}
-                ${insight.severity === "bad" &&
-                  "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"}
-              `}
-            >
-              {insight.msg}
-            </span>
-          )}
-        </div>
-
-        <div className={`p-3 rounded-lg ${color}`}>
-          <Icon className="w-6 h-6" />
-        </div>
-      </div>
-    </div>
-  )
-
-  if (loading) return <div className="p-8 text-center">Loading sales data…</div>
-  if (error) return <div className="p-8 text-red-600">{error}</div>
+  const metrics = [
+    { title: "Average Bill Value", icon: BarChart3, value: "₹240" },
+    { title: "Number of Bills", icon: Activity, value: "502" },
+    { title: "Lead to Conversion Rate", icon: PieChart, value: "12%" },
+    { title: "Customer Acquisition Cost (CAC)", icon: DollarSign, value: "₹45" },
+    { title: "Lifetime Value (LTV)", icon: Users, value: "₹1,250" },
+    { title: "Customer Retention Rate", icon: TrendingUp, value: "78%" },
+    { title: "Customer Churn Rate", icon: Activity, value: "5%" },
+  ];
 
   return (
-    <div className="p-6 h-full min-h-0 bg-gray-50 dark:bg-neutral-950">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-neutral-900 dark:to-neutral-950">
+      <div className="max-w-6xl mx-auto px-6 py-10 space-y-10">
+        {/* Header */}
+        <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-neutral-100 tracking-tight">Sales Metrics</h1>
+            <p className="text-slate-500 dark:text-neutral-400">Premium SaaS view of your key KPIs</p>
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-900/70 px-4 py-1 text-xs text-slate-500 dark:text-neutral-300 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            Last 30 days · Dummy Data
+          </div>
+        </header>
 
-        {/* SALES HEALTH SCORE + STAGE */}
-        <div className="mb-10 p-6 bg-white dark:bg-neutral-900 rounded-xl shadow border border-gray-200 dark:border-neutral-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-neutral-100">
-                Sales Health Score
-              </h2>
-              <div className="flex items-center gap-3">
-                <div className="text-5xl font-extrabold text-blue-600">{salesHealthScore}%</div>
-                <span
-                  className={`text-xs px-3 py-1 rounded-full inline-flex items-center gap-1 ${stage.pill}`}
-                >
-                  {stage.label === 'Critical' && <AlertTriangle className="w-3 h-3" />}
-                  {stage.label === 'High' && <CheckCircle className="w-3 h-3" />}
-                  {stage.label}
+        {/* Top KPIs row */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Overall score */}
+          <Card className="rounded-3xl border-none shadow-xl bg-white/80 dark:bg-neutral-900/70 backdrop-blur">
+            <CardContent className="py-6 px-6 flex flex-col justify-between h-full">
+              <div className="text-sm font-medium text-slate-500 dark:text-neutral-400">Overall Score</div>
+              <div className="mt-4 text-5xl font-extrabold text-indigo-600 leading-none">92%</div>
+              <p className="mt-3 text-xs text-slate-400">Combined view of all sales metrics (dummy for UI demo).</p>
+            </CardContent>
+          </Card>
+
+          {/* Total Revenue */}
+          <Card className="rounded-3xl border-none shadow-md bg-white dark:bg-neutral-900/70">
+            <CardContent className="py-5 px-6 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-500 dark:text-neutral-400">Total Revenue</span>
+                <span className="inline-flex items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-900/50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+                  +8.5% MoM
                 </span>
               </div>
-              <p className="text-gray-600 dark:text-neutral-400 mt-1">
-                {stage.desc}
-              </p>
-            </div>
-          </div>
-        </div>
+              <div className="flex items-end justify-between">
+                <span className="text-2xl font-semibold text-slate-900 dark:text-neutral-100">₹120,000</span>
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* MAIN SALES METRICS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatCard
-            title="Total Revenue"
-            value={`$${totalSales.toLocaleString()}`}
-            icon={DollarSign}
-            color="bg-green-50 dark:bg-green-900/20"
-          />
-          <StatCard
-            title="Avg Order Value"
-            value={`$${avgOrderValue.toFixed(2)}`}
-            icon={ShoppingCart}
-            color="bg-blue-50 dark:bg-blue-900/20"
-          />
-          <StatCard
-            title="Total Bills"
-            value={billCount}
-            icon={FileText}
-            color="bg-orange-50 dark:bg-orange-900/20"
-          />
-          <StatCard
-            title="Unique Customers"
-            value={uniqueBills}
-            icon={Users}
-            color="bg-purple-50 dark:bg-purple-900/20"
-          />
-        </div>
+          {/* Revenue Growth Rate */}
+          <Card className="rounded-3xl border-none shadow-md bg-white dark:bg-neutral-900/70">
+            <CardContent className="py-5 px-6 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-500 dark:text-neutral-400">Revenue Growth Rate</span>
+                <TrendingUp className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="flex items-end justify-between">
+                <span className="text-2xl font-semibold text-slate-900 dark:text-neutral-100">8.5%</span>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
 
-        {/* SALES SCORE SUB-METRICS */}
-        <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-neutral-100">
-          Sales Quality Breakdown
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-          {insights.map((i, idx) => {
-            const insight = getSalesInsight(i.title, i.raw)
-
-            return (
-              <StatCard
-                key={idx}
-                title={i.title}
-                value={i.raw.toFixed(1) + "%"}
-                icon={Activity}
-                color="bg-gray-50 dark:bg-gray-800"
-                insight={insight}
-              />
-            )
-          })}
-        </div>
-
-        {/* A) SIMPLE RECOMMENDATION LIST */}
-        <div className="mb-8 p-6 bg-white dark:bg-neutral-900 rounded-xl shadow border border-gray-200 dark:border-neutral-800">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-neutral-100 mb-2">
-            How to Improve Your Sales Score
-          </h2>
-          <p className="text-sm text-gray-600 dark:text-neutral-400 mb-3">
-            These actions are based on customer growth, ARPC and revenue consistency.
-          </p>
-          <ul className="list-disc list-inside space-y-1 text-sm text-gray-700 dark:text-neutral-300">
-            {simpleList.map((item, idx) => (
-              <li key={idx}>{item}</li>
-            ))}
-          </ul>
-        </div>
-
-        {/* B) COLORED RECOMMENDATION CARDS */}
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-neutral-100 mb-3">
-            Priority Sales Actions
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {cards.map((c, idx) => {
-              const severityClasses =
-                c.severity === 'critical'
-                  ? 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800'
-                  : c.severity === 'major'
-                  ? 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-800'
-                  : 'border-blue-300 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800'
-
-              const badgeLabel =
-                c.severity === 'critical'
-                  ? 'Critical'
-                  : c.severity === 'major'
-                  ? 'High Priority'
-                  : 'Nice to Improve'
-
+        {/* Metrics grid */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-slate-600 dark:text-neutral-300">All Metrics</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {metrics.map((m, index) => {
+              const Icon = m.icon;
               return (
-                <div
-                  key={idx}
-                  className={`p-4 rounded-xl shadow-sm border ${severityClasses}`}
+                <Card
+                  key={index}
+                  className="rounded-2xl border border-slate-100 dark:border-neutral-800 bg-white/90 dark:bg-neutral-900/70 shadow-sm hover:shadow-md transition"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold text-sm text-gray-900 dark:text-neutral-100">
-                      {c.title}
-                    </h4>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/70 dark:bg-neutral-900/40 text-gray-700 dark:text-neutral-200">
-                      {badgeLabel}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-700 dark:text-neutral-300">
-                    {c.description}
-                  </p>
-                </div>
-              )
+                  <CardHeader className="flex flex-row items-center gap-3 pb-1 px-4 pt-4">
+                    <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/30">
+                      <Icon className="w-4 h-4 text-indigo-500" />
+                    </div>
+                    <CardTitle className="text-[13px] font-medium text-slate-700 dark:text-neutral-200 leading-snug">
+                      {m.title}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-4 pb-4">
+                    <div className={`mt-2 text-2xl font-semibold ${getColorClass(m.value)}`}>{m.value}</div>
+                  </CardContent>
+                </Card>
+              );
             })}
           </div>
-        </div>
+        </section>
 
-        {/* C) 90-DAY SALES ROADMAP */}
-        <div className="mb-10 p-6 bg-white dark:bg-neutral-900 rounded-xl shadow border border-gray-200 dark:border-neutral-800">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-neutral-100 mb-3">
-            90-Day Sales Roadmap
-          </h3>
-          <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700 dark:text-neutral-300">
-            {roadmap.map((step, idx) => (
-              <li key={idx}>
-                <span className="font-medium text-gray-900 dark:text-neutral-100">
-                  {step.label}
-                </span>
-                <span className="ml-1 text-gray-700 dark:text-neutral-300">
-                  {step.detail}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
+        {/* Roadmap Section */}
+        <section className="mt-10 bg-white dark:bg-neutral-800/50 rounded-3xl shadow-md p-6 border border-slate-100 dark:border-neutral-800">
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-neutral-200 mb-4">Roadmap</h3>
+
+          <div className="space-y-6">
+
+            {/* Step 1 */}
+            <div className="flex gap-4 items-start">
+              <div className="w-8 h-8 flex items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold">1</div>
+              <div>
+                <h4 className="font-semibold text-slate-800 dark:text-neutral-200">Improve Revenue Growth</h4>
+                <p className="text-slate-600 dark:text-neutral-400 text-sm mt-1">Focus on enhancing conversion funnels and increasing average bill value to boost your growth rate above 12%.</p>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex gap-4 items-start">
+              <div className="w-8 h-8 flex items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold">2</div>
+              <div>
+                <h4 className="font-semibold text-slate-800 dark:text-neutral-200">Reduce Churn Rate</h4>
+                <p className="text-slate-600 dark:text-neutral-400 text-sm mt-1">Analyze customer feedback and improve retention strategies to bring churn from 5% down to 3%.</p>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="flex gap-4 items-start">
+              <div className="w-8 h-8 flex items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold">3</div>
+              <div>
+                <h4 className="font-semibold text-slate-800 dark:text-neutral-200">Enhance Retention Performance</h4>
+                <p className="text-slate-600 dark:text-neutral-400 text-sm mt-1">Strengthen customer loyalty programs and improve user engagement to push retention above 85%.</p>
+              </div>
+            </div>
+
+            {/* Step 4 */}
+            <div className="flex gap-4 items-start">
+              <div className="w-8 h-8 flex items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold">4</div>
+              <div>
+                <h4 className="font-semibold text-slate-800 dark:text-neutral-200">Optimize CAC</h4>
+                <p className="text-slate-600 dark:text-neutral-400 text-sm mt-1">Maintain or reduce CAC by optimizing marketing spend and focusing on high-converting customer segments.</p>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
       </div>
     </div>
-  )
+  );
 }

@@ -1,258 +1,891 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import Icon from '../components/Icon'
+import {
+  X,
+  Plus,
+  Send,
+  ThumbsUp,
+  ThumbsDown,
+  Copy,
+  Check,
+  Share2,
+  Pencil,
+  RotateCcw,
+  Volume2,
+  Square,
+  Mic,
+  MicOff,
+  Download,
+  ChevronDown,
+  Trash2,
+  FileText,
+  Zap,
+  HelpCircle,
+  Maximize2,
+  Minimize2,
+  MonitorPlay,
+  ChevronLeft,
+  ChevronRight,
+  MoreVertical
+} from 'lucide-react'
 import { api } from '../lib/api'
 import Markdown from '../components/Markdown'
 
 type Msg = { id: string; role: 'user' | 'assistant'; content: string }
 
-function Bubble({ msg }: { msg: Msg }) {
-  const isUser = msg.role === 'user'
+// --- Constants & Helpers ---
+const STARTER_QUESTIONS = [
+  { icon: <Zap size={16} />, label: "Analyze Sales", prompt: "Analyze the sales trend for the last quarter." },
+  { icon: <FileText size={16} />, label: "Summarize", prompt: "Summarize the key financial metrics from the file." },
+  { icon: <Share2 size={16} />, label: "LinkedIn Post", prompt: "Draft a LinkedIn post about our Q3 results." },
+  { icon: <HelpCircle size={16} />, label: "Explain KPI", prompt: "Explain 'CAC' and how to calculate it." }
+]
+
+// Helper to clean Markdown symbols (**bold**, # Header, etc) for plain text export
+const cleanMarkdown = (text: string) => {
+  return text
+    .replace(/\*\*/g, '')           // Remove bold
+    .replace(/__/g, '')             // Remove underline/bold
+    .replace(/^#+\s*/gm, '')        // Remove Headers (#)
+    .replace(/`/g, '')              // Remove code ticks
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Remove links, keep text
+    .trim();
+};
+
+const getLanguageFromText = (text: string): string => {
+  const regionalRegex = /[\u0B80-\u0BFF\u0C00-\u0C7F\u0900-\u097F\u0D00-\u0D7F\u0C80-\u0CFF\u0980-\u09FF\u0A80-\u0AFF]/;
+  return regionalRegex.test(text) ? 'regional' : 'en-US';
+};
+
+const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+function ThinkingAnimation() {
   return (
-    <div className={`flex py-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`max-w-[720px] rounded-xl px-3 py-2 ${isUser ? 'text-white bg-gradient-to-r from-brand1 via-brand2 to-brand3' : 'bg-neutral-200/60 dark:bg-neutral-800/60'}`}
-      >
-        {isUser ? (
-          <span className="whitespace-pre-wrap">{msg.content}</span>
-        ) : (
-          <Markdown>{msg.content}</Markdown>
-        )}
+    <div className="flex py-4 justify-start animate-in fade-in duration-500">
+      <div className="relative group rounded-2xl bg-white/40 dark:bg-neutral-900/40 border border-white/20 dark:border-neutral-800 backdrop-blur-md shadow-sm p-1 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-neutral-100/50 dark:via-neutral-800/50 to-transparent -translate-x-[100%] group-hover:animate-[shimmer_2s_infinite]" />
+        <div className="flex items-center gap-4 px-5 py-3 relative z-10">
+          <div className="relative w-6 h-6 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full border-[2px] border-transparent border-t-brand1 border-r-brand1/50 animate-[spin_3s_linear_infinite]" />
+            <div className="absolute inset-1 rounded-full border-[2px] border-transparent border-b-brand2 border-l-brand2/50 animate-[spin_2s_linear_infinite_reverse]" />
+            <div className="w-1.5 h-1.5 bg-brand3 rounded-full animate-pulse" />
+          </div>
+          <div className="flex flex-col justify-center">
+            <span className="text-xs font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-brand1 to-brand3 uppercase opacity-90">Thinking...</span>
+            <span className="text-[10px] text-neutral-400 font-medium">Analyzing data stream...</span>
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
+function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent }: { msg: Msg; onEdit: (text: string) => void; onRegenerate?: () => void; onMaximize: () => void; onPresent: () => void }) {
+  const isUser = msg.role === 'user'
+  const [liked, setLiked] = useState<boolean | null>(null)
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [feedback, setFeedback] = useState('')
+  const [isCopied, setIsCopied] = useState(false)
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+
+  const contentRef = useRef<HTMLDivElement>(null)
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        moreMenuRef.current &&
+        !moreMenuRef.current.contains(event.target as Node) &&
+        moreMenuButtonRef.current &&
+        !moreMenuButtonRef.current.contains(event.target as Node)
+      ) {
+        setShowMoreMenu(false);
+      }
+    }
+
+    if (showMoreMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showMoreMenu]);
+
+  const languageCode = useMemo(() => getLanguageFromText(msg.content), [msg.content]);
+  const showSpeakButton = languageCode === 'en-US';
+
+  const handleCopy = () => {
+    const textToCopy = contentRef.current?.innerText || msg.content
+    navigator.clipboard.writeText(textToCopy)
+    setIsCopied(true)
+    setTimeout(() => setIsCopied(false), 2000)
+  }
+
+  const handleShare = () => {
+    const textToShare = contentRef.current?.innerText || msg.content
+    if (navigator.share) navigator.share({ title: 'Chat Insight', text: textToShare }).catch(() => { })
+    else handleCopy()
+  }
+
+  const handleSpeak = () => {
+    const synth = window.speechSynthesis;
+    if (isSpeaking) { synth.cancel(); setIsSpeaking(false); return; }
+    const text = contentRef.current?.innerText || msg.content;
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = synth.getVoices();
+    const enVoices = voices.filter(v => v.lang.startsWith('en'));
+    let selectedVoice = enVoices.find(v => v.name.includes('Google US English')) || enVoices.find(v => v.name.includes('Microsoft Zira')) || enVoices.find(v => v.name.includes('Google')) || enVoices.find(v => v.name.includes('Natural')) || enVoices[0];
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    synth.speak(utterance);
+    setIsSpeaking(true);
+  }
+
+  const handleLike = () => { setLiked(prev => (prev === true ? null : true)); setShowFeedback(false); }
+  const handleDislike = () => { const newState = liked === false ? null : false; setLiked(newState); setShowFeedback(newState === false); }
+  const submitFeedback = () => { setFeedbackSubmitted(true); setTimeout(() => { setShowFeedback(false); setFeedbackSubmitted(false); setFeedback(''); }, 1500); }
+
+  return (
+    <div className={`group flex flex-col py-2 ${isUser ? 'items-end' : 'items-start'}`}>
+      <div
+        ref={contentRef}
+        className={`max-w-[720px] rounded-2xl px-5 py-3.5 shadow-sm transition-all duration-200 relative ${isUser
+          ? 'text-white bg-gradient-to-br from-brand1 via-brand2 to-brand3 rounded-tr-sm'
+          : 'bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-tl-sm'
+          } [&_ol]:list-decimal [&_ol]:ml-5 [&_ul]:list-disc [&_ul]:ml-5`}
+      >
+        {isUser ? <span className="whitespace-pre-wrap font-light leading-relaxed">{msg.content}</span> : <Markdown>{msg.content}</Markdown>}
+      </div>
+
+      {isUser && (
+        <div className="mt-1 px-1 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <button onClick={() => onEdit(msg.content)} className="p-1.5 rounded-lg text-neutral-400 hover:text-brand1 hover:bg-brand1/10 transition-all" title="Edit">
+            <Pencil size={14} />
+          </button>
+          <div className="w-px h-3 bg-neutral-200 dark:bg-neutral-800" />
+          <button onClick={handleCopy} className="p-1.5 rounded-lg text-neutral-400 hover:text-brand1 hover:bg-brand1/10 transition-all" title="Copy">
+            {isCopied ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+        </div>
+      )}
+
+      {!isUser && (
+        <div className="mt-2 flex items-center gap-1 px-1 relative">
+          {showSpeakButton && (
+            <button onClick={handleSpeak} className={`p-1.5 rounded-lg transition-all ${isSpeaking ? 'text-brand2 bg-brand2/10 ring-1 ring-brand2/20' : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Read aloud">
+              {isSpeaking ? <Square size={15} fill="currentColor" /> : <Volume2 size={15} />}
+            </button>
+          )}
+          <button onClick={handleCopy} className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all" title="Copy">{isCopied ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}</button>
+          <button onClick={handleLike} className={`p-1.5 rounded-lg transition-all ${liked === true ? 'text-green-600 bg-green-50 dark:bg-green-900/20' : 'text-neutral-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20'}`} title="Like"><ThumbsUp size={15} /></button>
+          <button onClick={handleDislike} className={`p-1.5 rounded-lg transition-all ${liked === false ? 'text-red-500 bg-red-50 dark:bg-red-900/20' : 'text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'}`} title="Dislike"><ThumbsDown size={15} /></button>
+          {onRegenerate && (
+            <button onClick={onRegenerate} className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all" title="Regenerate">
+              <RotateCcw size={15} />
+            </button>
+          )}
+
+          <button ref={moreMenuButtonRef} onClick={() => setShowMoreMenu(!showMoreMenu)} className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all" title="More">
+            <MoreVertical size={15} />
+          </button>
+
+          {showMoreMenu && (
+            <div ref={moreMenuRef} className="absolute left-0 top-full mt-2 w-48 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-2 z-30">
+              <button onClick={() => { onMaximize(); setShowMoreMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-brand1/10 hover:text-brand1 transition-colors"><Maximize2 size={14} /> Focus View</button>
+              <button onClick={() => { onPresent(); setShowMoreMenu(false); }} className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-purple-600/10 hover:text-purple-600 transition-colors"><MonitorPlay size={14} /> Presentation Mode</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isUser && showFeedback && (
+        <div className="mt-3 w-full max-w-[480px] bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-4 shadow-sm animate-in slide-in-from-top-2">
+          {feedbackSubmitted ? (
+            <div className="text-sm text-green-600 flex items-center gap-2 font-medium"><Check size={16} /><span>Feedback received. Thank you!</span></div>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Provide Feedback</p>
+              <textarea className="w-full text-sm p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 focus:ring-2 focus:ring-brand1/20 focus:border-brand1 outline-none resize-none transition-all" rows={2} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="What was inaccurate or unhelpful?" />
+              <div className="flex justify-end gap-2 mt-3">
+                <button onClick={() => setShowFeedback(false)} className="text-xs px-3 py-1.5 rounded-md font-medium text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">Cancel</button>
+                <button onClick={submitFeedback} className="text-xs px-4 py-1.5 rounded-md font-medium bg-neutral-900 dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity">Submit Feedback</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+import ChatInput from '../components/ChatInput';
+
+
+
 export default function ChatView() {
+
   const { id } = useParams()
+
   const chatId = id ? String(id) : null
+
   const [messages, setMessages] = useState<Msg[]>([])
+
   const [input, setInput] = useState('')
+
   const [loading, setLoading] = useState(false)
+
   const [files, setFiles] = useState<File[]>([])
-  const [error, setError] = useState<string | null>(null)
+
+  const [_error, setError] = useState<string | null>(null)
+
+  const [isRecording, setIsRecording] = useState(false)
+
+  const [showSlashMenu, setShowSlashMenu] = useState(false)
+
+  const [showScrollButton, setShowScrollButton] = useState(false)
+
+
+
+  const [focusedMsg, setFocusedMsg] = useState<Msg | null>(null)
+
+  const [presentingMsg, setPresentingMsg] = useState<Msg | null>(null)
+
+  const [currentSlide, setCurrentSlide] = useState(0)
+
+
+
   const listRef = useRef<HTMLDivElement | null>(null)
-  const textRef = useRef<HTMLTextAreaElement | null>(null)
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const [scrollBtnBottom, setScrollBtnBottom] = useState<number>(128)
+
+
+
+  const recognition = useMemo(() => {
+
+    if (typeof SpeechRecognition !== 'undefined') {
+
+      const rec = new SpeechRecognition();
+
+      rec.continuous = false; rec.interimResults = false; rec.lang = 'en-US';
+
+      return rec;
+
+    }
+
+    return null;
+
+  }, []);
+
+
+
+  // --- Improved Slide Logic ---
+
+  const slides = useMemo(() => {
+
+    if (!presentingMsg) return [];
+
+    const text = presentingMsg.content;
+
+    if (text.includes('---')) return text.split('---').map(s => s.trim()).filter(Boolean);
+
+    if (text.match(/^#{1,2} /m)) return text.split(/(?=^#{1,2} )/m).map(s => s.trim()).filter(Boolean);
+
+    if (text.length > 600) {
+
+      const paragraphs = text.split('\n\n');
+
+      const chunks = [];
+
+      let currentChunk = '';
+
+      for (const p of paragraphs) {
+
+        if ((currentChunk + p).length > 500) {
+
+          if (currentChunk) chunks.push(currentChunk);
+
+          currentChunk = p;
+
+        } else {
+
+          currentChunk += (currentChunk ? '\n\n' : '') + p;
+
+        }
+
+      }
+
+      if (currentChunk) chunks.push(currentChunk);
+
+      return chunks;
+
+    }
+
+    return [text];
+
+  }, [presentingMsg]);
+
+
+
+  const nextSlide = () => setCurrentSlide(p => Math.min(p + 1, slides.length - 1));
+
+  const prevSlide = () => setCurrentSlide(p => Math.max(p - 1, 0));
+
+
+
+  useEffect(() => {
+
+    if (!presentingMsg) {
+
+      document.body.style.overflow = 'auto';
+
+      return;
+
+    }
+
+    document.body.style.overflow = 'hidden';
+
+    const handleKey = (e: KeyboardEvent) => {
+
+      if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
+
+      if (e.key === 'ArrowLeft') prevSlide();
+
+      if (e.key === 'Escape') setPresentingMsg(null);
+
+    };
+
+    window.addEventListener('keydown', handleKey);
+
+    return () => {
+
+      window.removeEventListener('keydown', handleKey);
+
+      document.body.style.overflow = 'auto';
+
+    }
+
+  }, [presentingMsg, slides.length]);
+
+
+
+  useEffect(() => { if (presentingMsg) setCurrentSlide(0); }, [presentingMsg]);
+
+
 
   const canSend = useMemo(() => (input.trim().length > 0 || files.length > 0) && !loading && !!chatId, [input, files.length, loading, chatId])
 
+
+
   useEffect(() => {
+
+    const loadVoices = () => { window.speechSynthesis.getVoices() };
+
+    loadVoices();
+
+    if (window.speechSynthesis.onvoiceschanged !== undefined) window.speechSynthesis.onvoiceschanged = loadVoices;
+
+  }, []);
+
+
+
+  useEffect(() => {
+
     if (!chatId) return
-    ;(async () => {
-      try {
-        setError(null)
-        const res = await api.get(`/chat/${chatId}/messages`)
-        const raw = res.data || []
-        const mapped: Msg[] = (Array.isArray(raw) ? raw : []).map((m: any, idx: number) => ({
-          id: String(m.id ?? idx),
-          role: (m.role ?? m.sender ?? 'assistant').toLowerCase() === 'user' ? 'user' : 'assistant',
-          content: String(m.content ?? m.text ?? m.message ?? '')
-        }))
-        setMessages(mapped)
-      } catch (e: any) {
-        setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load messages')
-      }
-    })()
+
+      ; (async () => {
+
+        try {
+
+          setError(null)
+
+          const res = await api.get(`/chat/${chatId}/messages`)
+
+          const raw = res.data || []
+
+          const mapped: Msg[] = (Array.isArray(raw) ? raw : []).map((m: any, idx: number) => ({
+
+            id: String(m.id ?? idx),
+
+            role: (m.role ?? m.sender ?? 'assistant').toLowerCase() === 'user' ? 'user' : 'assistant',
+
+            content: String(m.content ?? m.text ?? m.message ?? '')
+
+          }))
+
+          setMessages(mapped)
+
+        } catch (e: any) { setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load messages') }
+
+      })()
+
   }, [chatId])
 
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages.length])
 
-  // Auto-size textarea as user types (grow without scrollbar)
+
+  useEffect(() => { scrollToBottom() }, [messages.length, loading])
+
+
+
+  const handleScroll = () => {
+
+    if (!listRef.current) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
+
+    setShowScrollButton(scrollHeight - scrollTop - clientHeight > 150);
+
+  };
+
+
+
+  // Keep the scroll-to-bottom button above the input area, even as it grows
   useEffect(() => {
-    const el = textRef.current
+    const el = document.querySelector('footer[data-chat-input]') as HTMLElement | null
     if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-    el.style.overflowY = 'hidden'
+    const update = () => {
+      try {
+        const h = el.getBoundingClientRect().height || 0
+        setScrollBtnBottom(Math.max(72, Math.ceil(h + 12)))
+      } catch {}
+    }
+    update()
+    const RO: any = (window as any).ResizeObserver
+    const ro = RO ? new RO(() => update()) : null
+    if (ro) ro.observe(el)
+    window.addEventListener('resize', update)
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', update) }
   }, [input])
 
-  const send = async () => {
-    if (!canSend || !chatId) return
-    const content = input.trim().length > 0 ? input.trim() : files.map(f => f.name).join(', ')
-    const userMsg: Msg = { id: crypto.randomUUID(), role: 'user', content }
-    setMessages((m) => [...m, userMsg])
-    setInput('')
-    setLoading(true)
-    try {
-      // Use unified /chat/send endpoint for both text and file uploads
-      const form = new FormData()
-      form.append('chat_id', chatId)
-      form.append('message', content)
 
-      // Add all files to the form
-      for (const f of files) {
-        form.append('file', f)
-      }
+
+  const scrollToBottom = () => {
+    const el = listRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    try { chatInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) } catch {}
+    chatInputRef.current?.focus()
+  }
+
+  const toggleRecording = () => {
+
+    if (!recognition) { alert("Voice input not supported."); return; }
+
+    if (isRecording) { recognition.stop(); setIsRecording(false); }
+
+    else {
+
+      setIsRecording(true); recognition.start();
+
+      recognition.onresult = (event: any) => {
+
+        const transcript = event.results[0][0].transcript;
+
+        setInput(prev => (prev ? prev + ' ' + transcript : transcript));
+
+        setIsRecording(false);
+
+      };
+
+      recognition.onerror = () => setIsRecording(false); recognition.onend = () => setIsRecording(false);
+
+    }
+
+  }
+
+
+
+  // UPDATED: Export with "ScalingWolf AI" label
+
+  const handleDownload = () => {
+
+    if (messages.length === 0) return;
+
+    const lines = messages.map(m => {
+
+      const cleanContent = cleanMarkdown(m.content);
+
+      // Here is the change for the label
+
+      return `[${m.role === 'user' ? 'User' : 'Scalingwolf AI'}] ${cleanContent}\n${'-'.repeat(20)}\n`;
+
+    });
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+
+    a.href = url; a.download = `Transcript_${chatId}.txt`;
+
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+
+  }
+
+
+
+  const executeSlashCommand = (cmd: string) => {
+
+    setShowSlashMenu(false);
+
+    if (cmd === 'clear') { setMessages([]); setInput(''); }
+
+    else if (cmd === 'export') { handleDownload(); setInput(''); }
+
+    else if (cmd === 'help') { setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: 'Available Commands:\n/clear - Clear chat\n/export - Download transcript\n/help - Show commands' }]); setInput(''); }
+
+  }
+
+
+
+
+  const handleStarterClick = (prompt: string) => { setInput(prompt); chatInputRef.current?.focus(); }
+  const handleEdit = (text: string) => { setInput(text); chatInputRef.current?.focus(); }
+
+
+
+  const handleRegenerate = async () => {
+
+    if (loading || !chatId) return
+
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
+
+    if (!lastUserMsg) return
+
+    setLoading(true)
+
+    try {
+
+      const form = new FormData()
+
+      form.append('chat_id', chatId); form.append('message', lastUserMsg.content)
 
       const { data } = await api.post('/chat/send', form)
 
-      // Handle the assistant reply
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
-      if (replyText) {
-        const reply: Msg = { id: crypto.randomUUID(), role: 'assistant', content: String(replyText) }
-        setMessages((m) => [...m, reply])
-      }
 
-      // If there were ingestions (file processing results), add them as additional info
+      if (replyText) setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: String(replyText) }])
+
+    } catch (e) { console.error(e) } finally { setLoading(false) }
+
+  }
+
+
+
+  const send = async () => {
+
+    if (!canSend || !chatId) return
+
+    const content = input.trim().length > 0 ? input.trim() : files.map(f => f.name).join(', ')
+
+    const userMsg: Msg = { id: crypto.randomUUID(), role: 'user', content }
+
+    setMessages((m) => [...m, userMsg])
+
+    setInput(''); setLoading(true)
+
+    const filesToSend = [...files]; setFiles([]);
+
+    try {
+
+      const form = new FormData()
+
+      form.append('chat_id', chatId); form.append('message', content)
+
+      for (const f of filesToSend) form.append('file', f)
+
+      const { data } = await api.post('/chat/send', form)
+
+      const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
+
+      if (replyText) setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: String(replyText) }])
+
       if (data?.ingestions && Array.isArray(data.ingestions)) {
+
         const ingestionInfo: string[] = []
-        for (const ing of data.ingestions) {
-          if (ing.type === 'sales_metrics' && ing.metrics) {
-            const lines = [`📊 Sales Metrics (${ing.file_name || 'File'}):`]
-            if (ing.metrics.total_sales != null) lines.push(`  • Total Sales: ${ing.metrics.total_sales}`)
-            if (ing.metrics.bill_row_count != null) lines.push(`  • Bill Rows: ${ing.metrics.bill_row_count}`)
-            if (ing.metrics.unique_bill_count != null) lines.push(`  • Unique Bills: ${ing.metrics.unique_bill_count}`)
-            ingestionInfo.push(lines.join('\n'))
-          } else if (ing.type === 'knowledge') {
-            ingestionInfo.push(`📚 Knowledge Base Updated (${ing.file_name || 'File'})\n  • ${ing.chunks_indexed || 0} chunks indexed`)
-          } else if (ing.status === 'error') {
-            ingestionInfo.push(`⚠️ Error processing ${ing.file_name || 'file'}: ${ing.notes || 'Unknown error'}`)
-          }
-        }
-        if (ingestionInfo.length > 0) {
-          const infoMsg: Msg = { id: crypto.randomUUID(), role: 'assistant', content: ingestionInfo.join('\n\n') }
-          setMessages((m) => [...m, infoMsg])
-        }
+
+        for (const ing of data.ingestions) ingestionInfo.push(`Processed: ${ing.file_name || 'File'}`);
+
+        if (ingestionInfo.length > 0) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', content: ingestionInfo.join('\n') }])
+
       }
 
-      setFiles([])
-    } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'Failed to send message')
-    } finally {
-      setLoading(false)
-    }
+    } catch (e: any) { setError(e?.response?.data?.error ?? e?.message ?? 'Failed to send message') }
+
+    finally { setLoading(false) }
+
   }
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      send()
-    }
-  }
+
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }
+
+
 
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateRows: '1fr auto' }}>
-      <div ref={listRef} style={{ overflowY: 'auto', padding: 16 }}>
-        {messages.length === 0 && (
-          <div style={{ maxWidth: 720, margin: '14vh auto', textAlign: 'center', opacity: 0.7 }}>
-            <h2 style={{ margin: 0 }}>New conversation</h2>
-            <p>Ask anything business-related. Press Enter to send.</p>
-          </div>
-        )}
-        {error && (
-          <div style={{ maxWidth: 720, margin: '8px auto 0', color: 'crimson' }}>{error}</div>
-        )}
-        <div style={{ maxWidth: 880, margin: '0 auto' }}>
-          {messages.map((m) => (
-            <Bubble key={m.id} msg={m} />
-          ))}
-          {loading && (
-            <div className="flex py-1 justify-start">
-              <div className="max-w-[720px] rounded-xl whitespace-pre-wrap px-3 py-2 bg-neutral-200/60 dark:bg-neutral-800/60 animate-pulse">
-                Thinking...
-              </div>
+
+    <div style={{ height: '100%', display: 'grid', gridTemplateRows: '1fr auto', position: 'relative' }}>
+
+
+
+      {/* 1. Focus Mode Modal */}
+
+      {focusedMsg && (
+
+        <div className="fixed inset-0 z-[150] bg-white/95 dark:bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 pt-16 animate-in fade-in zoom-in-95 duration-200">
+
+          <div className="w-full max-w-4xl max-h-[85vh] flex flex-col bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800">
+
+            <div className="flex items-center justify-between p-4 border-b border-neutral-100 dark:border-neutral-800">
+
+              <span className="font-semibold text-neutral-900 dark:text-white">Focused View</span>
+
+              <button onClick={() => setFocusedMsg(null)} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"><Minimize2 size={20} /></button>
+
             </div>
-          )}
+
+            <div className="overflow-y-auto p-8 text-lg leading-relaxed text-neutral-800 dark:text-neutral-200 prose-ol:list-decimal prose-ol:ml-5 prose-ul:list-disc prose-ul:ml-5">
+
+              <Markdown>{focusedMsg.content}</Markdown>
+
+            </div>
+
+          </div>
+
         </div>
+
+      )}
+
+
+
+      {/* 2. Presentation Slide Mode - THEME AWARE & FIXED POSITION */}
+
+      {presentingMsg && slides.length > 0 && (
+
+        <div className="fixed inset-0 z-[999999] bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white flex flex-col animate-in fade-in duration-500">
+
+
+
+          {/* Close Button - Lowered to top-20 (approx 80px) to strictly avoid top headers */}
+
+          <button
+
+            onClick={() => setPresentingMsg(null)}
+
+            className="absolute top-20 right-10 z-[1000000] p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-black dark:hover:text-white transition-all shadow-sm group"
+
+            title="Close Presentation"
+
+          >
+
+            <X size={20} className="group-hover:scale-110 transition-transform duration-300" />
+
+          </button>
+
+
+
+          {/* Main Slide Area */}
+
+          <div className="flex-1 flex items-center justify-center overflow-hidden relative w-full h-full">
+
+
+
+            {/* Nav Left - Safe from Sidebar */}
+
+            <button
+
+              onClick={prevSlide}
+
+              disabled={currentSlide === 0}
+
+              className="absolute left-8 md:left-32 z-[1000000] p-3 rounded-full bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-0 disabled:pointer-events-none transition-all backdrop-blur-sm text-neutral-900 dark:text-white"
+
+            >
+
+              <ChevronLeft size={40} />
+
+            </button>
+
+
+
+            {/* Slide Content */}
+
+            <div key={currentSlide} className="max-w-4xl w-full px-8 h-[75vh] flex items-center justify-center animate-in slide-in-from-right-8 duration-500">
+
+              <div className="prose dark:prose-invert prose-2xl max-w-none w-full text-center leading-relaxed max-h-full overflow-y-auto px-6 py-8 scrollbar-hide prose-ol:list-decimal prose-ol:text-left prose-ul:list-disc prose-ul:text-left prose-li:marker:text-brand1">
+
+                <Markdown>{slides[currentSlide]}</Markdown>
+
+              </div>
+
+            </div>
+
+
+
+            {/* Nav Right - Safe from Edge */}
+
+            <button
+
+              onClick={nextSlide}
+
+              disabled={currentSlide === slides.length - 1}
+
+              className="absolute right-8 md:right-32 z-[1000000] p-3 rounded-full bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-0 disabled:pointer-events-none transition-all backdrop-blur-sm text-neutral-900 dark:text-white"
+
+            >
+
+              <ChevronRight size={40} />
+
+            </button>
+
+          </div>
+
+
+
+          {/* Footer Progress - Adaptive */}
+
+          <div className="h-20 flex flex-col items-center justify-center gap-3 pb-6 bg-gradient-to-t from-white/80 dark:from-black/80 to-transparent">
+
+            <div className="flex gap-2">
+
+              {slides.map((_, idx) => (
+
+                <div key={idx} className={`h-1.5 rounded-full transition-all duration-300 ${idx === currentSlide ? 'w-16 bg-brand1' : 'w-3 bg-neutral-300 dark:bg-neutral-700 hover:bg-neutral-400 dark:hover:bg-neutral-600 cursor-pointer'}`} onClick={() => setCurrentSlide(idx)} />
+
+              ))}
+
+            </div>
+
+            <span className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">Slide {currentSlide + 1} of {slides.length}</span>
+
+          </div>
+
+        </div>
+
+      )}
+
+
+
+      {/* Message List */}
+
+      <div ref={listRef} onScroll={handleScroll} style={{ overflowY: 'auto', padding: '20px 16px' }}>
+
+        {messages.length === 0 ? (
+
+          <div className="flex flex-col items-center justify-center min-h-[50vh] opacity-0 animate-in fade-in zoom-in duration-500 fill-mode-forwards">
+
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand1 to-brand3 mb-6 shadow-xl shadow-brand1/20" />
+
+            <h2 className="text-2xl font-semibold tracking-tight mb-2 text-neutral-800 dark:text-white">New Insight Session</h2>
+
+            <p className="text-neutral-500 mb-8">Select a starter or type a message.</p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
+
+              {STARTER_QUESTIONS.map((item, i) => (
+
+                <button key={i} onClick={() => handleStarterClick(item.prompt)} className="text-left p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:border-brand1/50 hover:shadow-md transition-all group">
+
+                  <div className="flex items-center gap-3 mb-2">
+
+                    <div className="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 group-hover:text-brand1 group-hover:bg-brand1/10 transition-colors">{item.icon}</div>
+
+                    <span className="font-medium text-sm text-neutral-900 dark:text-neutral-100">{item.label}</span>
+
+                  </div>
+
+                  <p className="text-xs text-neutral-500 line-clamp-2 pl-1">{item.prompt}</p>
+
+                </button>
+
+              ))}
+
+            </div>
+
+          </div>
+
+        ) : (
+
+          <div className="max-w-[880px] mx-auto pb-6 space-y-6 relative">
+
+            {messages.map((m, idx) => (
+
+              <Bubble
+
+                key={m.id}
+
+                msg={m}
+
+                onEdit={handleEdit}
+
+                onMaximize={() => setFocusedMsg(m)}
+
+                onPresent={() => setPresentingMsg(m)}
+
+                onRegenerate={(!loading && m.role === 'assistant' && idx === messages.length - 1) ? handleRegenerate : undefined}
+
+              />
+
+            ))}
+
+            {loading && <ThinkingAnimation />}
+
+          </div>
+
+        )}
+
       </div>
 
-      <div style={{ padding: 12 }}>
-        <div style={{ maxWidth: 880, margin: '0 auto' }}>
-          {files.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-              {files.map((f, i) => (
-                <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }}>
-                  {f.name}
-                  <button type="button" title="Remove" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)' }}>
-                    <Icon name="x" size={14} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="composer relative rounded-xl border border-neutral-300 dark:border-neutral-700 overflow-hidden focus-within:border-transparent">
-            <textarea
-              ref={textRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="Type your message..."
-              rows={1}
-              style={{
-                width: '100%',
-                padding: '12px 52px 12px 52px',
-                border: 'none',
-                outline: 'none',
-                background: 'transparent',
-                color: 'var(--text)',
-                resize: 'none'
-              }}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const list = e.target.files
-                if (!list) return
-                const arr = Array.from(list)
-                setFiles(prev => [...prev, ...arr])
-                e.currentTarget.value = ''
-              }}
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              title="Add files"
-              style={{
-                position: 'absolute',
-                left: 8,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                width: 32,
-                height: 32,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: 'var(--panel)',
-                color: 'var(--text)'
-              }}
-              type="button"
-            >
-              <Icon name="plus" />
-            </button>
-            <button
-              onClick={send}
-              disabled={!canSend}
-              title="Send"
-              style={{
-                position: 'absolute',
-                right: 8,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                width: 32,
-                height: 32,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: 'var(--panel)',
-                color: 'var(--text)',
-                opacity: canSend ? 1 : 0.6
-              }}
-              type="button"
-            >
-              <Icon name="send" />
-            </button>
-          </div>
-        </div>
-      </div>
+
+
+      {showScrollButton && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute left-1/2 -translate-x-1/2 z-20 p-2 rounded-full bg-white dark:bg-neutral-800 shadow-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:text-brand1 transition-all animate-in fade-in slide-in-from-bottom-4"
+          style={{ bottom: scrollBtnBottom }}
+        >
+          <ChevronDown size={20} />
+        </button>
+      )}
+
+
+
+      {/* Input Area */}
+
+      <ChatInput
+
+        ref={chatInputRef}
+
+        input={input}
+
+        setInput={setInput}
+
+        send={send}
+
+        isRecording={isRecording}
+
+        toggleRecording={toggleRecording}
+
+        canSend={canSend}
+
+        files={files}
+
+        setFiles={setFiles}
+
+        onKeyDown={onKeyDown}
+
+        showSlashMenu={showSlashMenu}
+
+        executeSlashCommand={executeSlashCommand}
+
+      />
+
     </div>
+
   )
+
 }

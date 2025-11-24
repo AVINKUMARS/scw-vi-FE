@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../lib/api'
 import { useNavigate } from 'react-router-dom'
 import Button from '../components/Button'
@@ -34,8 +34,46 @@ export default function CompanySetup() {
     const [loading, setLoading] = useState(false)
     const [err, setErr] = useState('')
     const autoCore = useMemo(() => industry === 'none' ? [] : CORE[industry], [industry])
+    const CORE_ALL = useMemo(() => (CORE['manufacturing']), [])
     const [selected, setSelected] = useState<string[]>([])
     const nav = useNavigate()
+
+    // Business types (searchable) from /api/business-types
+    type BizType = { id: number; category: string; sub_category: string; business_type: string }
+    const [bizTypes, setBizTypes] = useState<BizType[]>([])
+    const [bizSearch, setBizSearch] = useState('')
+    const [bizOpen, setBizOpen] = useState(false)
+    const [bizSelected, setBizSelected] = useState<BizType | null>(null)
+    const suggestRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        let cancelled = false
+        api.get('/business-types')
+            .then(({ data }) => {
+                if (cancelled) return
+                const items: BizType[] = Array.isArray(data?.data) ? data.data : []
+                setBizTypes(items)
+            })
+            .catch(() => {})
+        return () => { cancelled = true }
+    }, [])
+
+    useEffect(() => {
+        const onClick = (e: MouseEvent) => {
+            if (!suggestRef.current) return
+            if (!suggestRef.current.contains(e.target as any)) setBizOpen(false)
+        }
+        document.addEventListener('click', onClick)
+        return () => document.removeEventListener('click', onClick)
+    }, [])
+
+    const normalizeIndustryFromCategory = (cat?: string): 'service' | 'manufacturing' | 'retail' | 'none' => {
+        const c = String(cat || '').toLowerCase()
+        if (c.startsWith('serv')) return 'service'
+        if (c.startsWith('manu')) return 'manufacturing'
+        if (c.startsWith('retail')) return 'retail'
+        return 'none'
+    }
 
     const toggle = (c: string) => setSelected(s => s.includes(c) ? s.filter(x => x !== c) : [...s, c])
 
@@ -43,18 +81,24 @@ export default function CompanySetup() {
         setErr('')
         setLoading(true)
         try {
-            const core = selected.length ? selected : autoCore
+            // Prefer industry/sub from selected business type
+            const industryType = bizSelected ? String(bizSelected.category || '').toLowerCase() : industry
+            const subIndustry = bizSelected ? bizSelected.business_type : sub
+            // Auto core based on normalized industry (when custom not selected)
+            const normalized = normalizeIndustryFromCategory(industryType)
+            const coreDefault = normalized === 'none' ? [] : CORE[normalized]
+            const core = selected.length ? selected : coreDefault
             await api.post('/company/setup', {
                 business_name: businessName,
                 monthly_revenue: monthlyRevenue === '' ? 0 : Number(monthlyRevenue),
                 employees: employees === '' ? 0 : Number(employees),
                 goal_amount: goalAmount === '' ? 0 : Number(goalAmount),
                 goal_years: goalYears === '' ? 0 : Number(goalYears),
-                industry_type: industry,
-                sub_industry: sub,
+                industry_type: industryType,
+                sub_industry: subIndustry,
                 core_processes: core
             })
-            nav('/home')
+            nav('/new-chat')
         } catch (e: any) {
             setErr(e?.response?.data?.error ?? 'Failed to complete setup')
         } finally {
@@ -68,12 +112,12 @@ export default function CompanySetup() {
                 {/* Progress Header */}
                 <div className="text-center mb-8">
                     <h1 className="text-3xl font-bold text-gray-900 mb-2">Complete Your Setup</h1>
-                    <p className="text-gray-600 text-sm">Step {step} of 3 - Let's get to know your business</p>
+                    <p className="text-gray-600 text-sm">Step {step} of 2 - Let's get to know your business</p>
                 </div>
 
                 {/* Progress Bar */}
                 <div className="mb-8 flex gap-2">
-                    {[1, 2, 3].map(s => (
+                    {[1, 2].map(s => (
                         <div
                             key={s}
                             className={`h-2 flex-1 rounded-full transition-all ${s <= step ? 'bg-gradient-to-r from-purple-600 to-blue-600' : 'bg-gray-200'}`}
@@ -103,6 +147,75 @@ export default function CompanySetup() {
                                     placeholder="Enter your company name"
                                     className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition"
                                 />
+                            </div>
+
+                            {/* Searchable Business Type */}
+                            <div ref={suggestRef}>
+                                <label className="block text-sm font-semibold text-gray-900 mb-2">Business Type (search)</label>
+                                <input
+                                    type="text"
+                                    value={bizSearch}
+                                    onChange={e => { setBizSearch(e.target.value); setBizSelected(null); setBizOpen(true) }}
+                                    onFocus={() => setBizOpen(true)}
+                                    placeholder="e.g., Footwear Manufacturing"
+                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition"
+                                />
+                                {bizOpen && (
+                                    <div className="mt-2 max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white shadow divide-y divide-gray-100">
+                                        {bizTypes
+                                            .filter(b => !bizSearch || b.business_type.toLowerCase().includes(bizSearch.toLowerCase()))
+                                            .slice(0, 12)
+                                            .map(b => (
+                                                <button
+                                                    type="button"
+                                                    key={b.id}
+                                                    onClick={() => {
+                                                        setBizSelected(b)
+                                                        setBizSearch(b.business_type)
+                                                        setBizOpen(false)
+                                                        const norm = normalizeIndustryFromCategory(b.category)
+                                                        if (norm !== 'none') setIndustry(norm)
+                                                    }}
+                                                    className="w-full text-left px-4 py-2 hover:bg-purple-50"
+                                                >
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium text-gray-900">{b.business_type}</span>
+                                                        <span className="text-xs text-gray-500">{b.category} • {b.sub_category}</span>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        {bizTypes.length > 0 && bizTypes.filter(b => !bizSearch || b.business_type.toLowerCase().includes(bizSearch.toLowerCase())).length === 0 && (
+                                            <div className="px-4 py-3 text-sm text-gray-500">No matches found</div>
+                                        )}
+                                    </div>
+                                )}
+                                {bizSelected && (
+                                    <p className="text-xs text-gray-600 mt-1">Selected: <span className="font-medium">{bizSelected.business_type}</span> <span className="text-gray-400">({bizSelected.category})</span></p>
+                                )}
+                            </div>
+
+                            {/* Core Processes selection moved under Business Information */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-900 mb-2">Core Processes</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {CORE_ALL.map(cp => (
+                                        <button
+                                            key={cp}
+                                            type="button"
+                                            onClick={() => toggle(cp)}
+                                            className={`px-4 py-2 rounded-full border-2 font-semibold transition-all capitalize ${
+                                                selected.includes(cp)
+                                                    ? 'border-purple-600 bg-purple-50 text-purple-900'
+                                                    : 'border-gray-300 bg-white text-gray-700 hover:border-purple-300'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <CheckCircle2 className={`w-4 h-4 ${selected.includes(cp) ? 'opacity-100' : 'opacity-30'}`} />
+                                                {cp}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             <div className="grid md:grid-cols-2 gap-4">
@@ -146,84 +259,40 @@ export default function CompanySetup() {
                         </div>
                     )}
 
-                    {/* Step 2: Industry & Goals */}
+                    {/* Step 2: Goals */}
                     {step === 2 && (
                         <div className="grid gap-6">
                             <div>
                                 <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
                                     <Target className="w-6 h-6 text-blue-600" />
-                                    Industry & Goals
+                                    Goals
                                 </h2>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-900 mb-3">Select Your Industry *</label>
-                                <div className="grid grid-cols-1 gap-3">
-                                    {(['service', 'manufacturing', 'retail'] as const).map((ind) => (
-                                        <button
-                                            key={ind}
-                                            onClick={() => {
-                                                setIndustry(ind)
-                                                setSub('')
-                                            }}
-                                            className={`p-4 rounded-lg border-2 transition flex items-center gap-3 ${
-                                                industry === ind
-                                                    ? 'border-purple-600 bg-purple-50'
-                                                    : 'border-gray-200 hover:border-purple-300'
-                                            }`}
-                                        >
-                                            <span className={`text-xl ${industry === ind ? 'text-purple-600' : 'text-gray-600'}`}>
-                                                {INDUSTRY_ICONS[ind]}
-                                            </span>
-                                            <span className={`font-semibold capitalize ${industry === ind ? 'text-purple-900' : 'text-gray-700'}`}>
-                                                {ind}
-                                            </span>
-                                            {industry === ind && <CheckCircle2 className="w-5 h-5 text-purple-600 ml-auto" />}
-                                        </button>
-                                    ))}
+                            <div className="grid md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-900 mb-2">Revenue Goal *</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        value={goalAmount}
+                                        onChange={e => setGoalAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                                        placeholder="e.g., 250000"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-900 mb-2">Years to Achieve *</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        value={goalYears}
+                                        onChange={e => setGoalYears(e.target.value === '' ? '' : Number(e.target.value))}
+                                        placeholder="e.g., 3"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition"
+                                    />
                                 </div>
                             </div>
-
-                            {industry !== 'none' && (
-                                <>
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-900 mb-2">Sub-Industry *</label>
-                                        <select
-                                            value={sub}
-                                            onChange={e => setSub(e.target.value)}
-                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition"
-                                        >
-                                            <option value="">Select sub-industry</option>
-                                            {SUBS[industry].map(x => <option key={x} value={x}>{x}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div className="grid md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-semibold text-gray-900 mb-2">Revenue Goal *</label>
-                                            <input
-                                                type="number"
-                                                min={0}
-                                                value={goalAmount}
-                                                onChange={e => setGoalAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                                                placeholder="e.g., 250000"
-                                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-semibold text-gray-900 mb-2">Years to Achieve *</label>
-                                            <input
-                                                type="number"
-                                                min={0}
-                                                value={goalYears}
-                                                onChange={e => setGoalYears(e.target.value === '' ? '' : Number(e.target.value))}
-                                                placeholder="e.g., 3"
-                                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition"
-                                            />
-                                        </div>
-                                    </div>
-                                </>
-                            )}
 
                             {err && step === 2 && (
                                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -241,79 +310,7 @@ export default function CompanySetup() {
                                     Back
                                 </Button>
                                 <Button
-                                    onClick={() => industry !== 'none' && sub && goalAmount !== '' && goalYears !== '' ? setStep(3) : setErr('Please fill all required fields')}
-                                    size="lg"
-                                    className="flex-1"
-                                >
-                                    Continue
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Step 3: Core Processes */}
-                    {step === 3 && (
-                        <div className="grid gap-6">
-                            <div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-2">
-                                    <TrendingUp className="w-6 h-6 text-cyan-600" />
-                                    Core Processes
-                                </h2>
-                                <p className="text-gray-600 text-sm">Select the processes relevant to your business</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-semibold text-gray-700 mb-4">
-                                    Auto-detected for <span className="text-purple-600 capitalize">{industry}</span> industry
-                                </p>
-                                <div className="flex flex-wrap gap-2">
-                                    {(autoCore).map(cp => (
-                                        <button
-                                            key={cp}
-                                            type="button"
-                                            onClick={() => toggle(cp)}
-                                            className={`px-4 py-2 rounded-full border-2 font-semibold transition-all capitalize ${
-                                                selected.includes(cp)
-                                                    ? 'border-purple-600 bg-purple-50 text-purple-900'
-                                                    : 'border-gray-300 bg-white text-gray-700 hover:border-purple-300'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <CheckCircle2 className={`w-4 h-4 ${selected.includes(cp) ? 'opacity-100' : 'opacity-30'}`} />
-                                                {cp}
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-4 border border-purple-100">
-                                <div className="flex gap-3">
-                                    <CheckCircle2 className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
-                                    <div>
-                                        <p className="font-semibold text-gray-900 text-sm">Ready to go!</p>
-                                        <p className="text-gray-600 text-xs mt-1">You can change these settings anytime in your business profile.</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {err && step === 3 && (
-                                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                                    <span className="text-red-600 text-sm">{err}</span>
-                                </div>
-                            )}
-
-                            <div className="flex gap-3">
-                                <Button
-                                    onClick={() => setStep(2)}
-                                    variant="outline"
-                                    size="lg"
-                                    className="flex-1"
-                                >
-                                    Back
-                                </Button>
-                                <Button
-                                    onClick={onFinish}
+                                    onClick={() => (goalAmount !== '' && goalYears !== '') ? onFinish() : setErr('Please fill all required fields')}
                                     loading={loading}
                                     size="lg"
                                     className="flex-1"
@@ -323,6 +320,8 @@ export default function CompanySetup() {
                             </div>
                         </div>
                     )}
+
+                    {/* Step 3 removed; core processes selection moved to Step 1 */}
                 </div>
 
                 {/* Features */}

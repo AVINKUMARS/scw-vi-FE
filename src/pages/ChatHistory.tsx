@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { api } from '../lib/api'
 import Icon from '../components/Icon'
 
@@ -12,17 +12,44 @@ export default function ChatHistory() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const nav = useNavigate()
+  const loc = useLocation()
 
   const load = async () => {
     setLoading(true); setErr('')
     try {
       const { data } = await api.get('/chat')
-      setItems(Array.isArray(data) ? data : [])
+      let list: any = data
+      if (Array.isArray(list)) {
+        // ok
+      } else if (list && Array.isArray(list.data)) {
+        list = list.data
+      } else if (list && Array.isArray(list.items)) {
+        list = list.items
+      } else if (list && Array.isArray(list.chats)) {
+        list = list.chats
+      } else {
+        list = []
+      }
+      setItems(list as ChatItem[])
     } catch (e: any) { setErr(e?.response?.data?.error ?? 'Failed to load chats') }
     finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [])
+  // Initial load and on route key change (ensures refresh when navigating back)
+  useEffect(() => { load() }, [loc.key])
+
+  // Also refresh when tab becomes visible again
+  useEffect(() => {
+    const onVis = () => { if (!document.hidden) load() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
+
+  // Second-chance refresh shortly after mount to catch just-created chats
+  useEffect(() => {
+    const t = window.setTimeout(() => { if (!loading) load() }, 600)
+    return () => window.clearTimeout(t)
+  }, [])
 
   const onEdit = (it: ChatItem) => { setEditingId(it.id); setEditingTitle(it.title ?? '') }
   const onCancel = () => { setEditingId(null); setEditingTitle('') }
@@ -42,6 +69,7 @@ export default function ChatHistory() {
         <button onClick={load} disabled={loading}>Refresh</button>
       </div>
       {err && <p style={{ color: 'crimson' }}>{err}</p>}
+      {loading && <p>Loading…</p>}
       {items.length === 0 && !loading && <p>No chats yet.</p>}
       <div style={{ display: 'grid', gap: 8 }}>
         {items.map(it => (

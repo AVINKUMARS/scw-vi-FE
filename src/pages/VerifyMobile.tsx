@@ -50,33 +50,13 @@ export default function VerifyMobile() {
         setLoading(true)
         try {
             await api.post('/auth/verify-otp', { phone_number: phoneNumber, otp })
-            // Phone is now verified, redirect to new chat
-            nav('/new-chat', { replace: true })
+            // Phone is now verified, proceed to setup
+            nav('/setup', { replace: true })
         } catch (e: any) {
             setErr(e?.response?.data?.error ?? 'OTP verification failed')
         } finally {
             setLoading(false)
         }
-    }
-
-    if (!ssoData) {
-        return (
-            <div className="min-h-screen bg-gradient-to-br from-white to-blue-50 flex items-center justify-center px-4 py-8">
-                <div className="w-full max-w-md text-center">
-                    <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-                        <p className="text-gray-600 mb-6">Missing authentication data.</p>
-                        <Button
-                            onClick={() => nav('/register')}
-                            variant="primary"
-                            size="lg"
-                            className="w-full"
-                        >
-                            Go back to Register
-                        </Button>
-                    </div>
-                </div>
-            </div>
-        )
     }
 
     return (
@@ -101,11 +81,11 @@ export default function VerifyMobile() {
                             <div>
                                 <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-4 mb-6 border border-purple-100">
                                     <p className="text-sm text-gray-600 mb-1">Welcome back</p>
-                                    {ssoData.user?.name && (
-                                        <p className="text-xl font-semibold text-gray-900">{ssoData.user.name}</p>
+                                    {ssoData?.user?.name && (
+                                        <p className="text-xl font-semibold text-gray-900">{ssoData?.user?.name}</p>
                                     )}
-                                    {ssoData.user?.email && (
-                                        <p className="text-xs text-gray-500 mt-1">{ssoData.user.email}</p>
+                                    {ssoData?.user?.email && (
+                                        <p className="text-xs text-gray-500 mt-1">{ssoData?.user?.email}</p>
                                     )}
                                 </div>
                             </div>

@@ -118,7 +118,7 @@ const LandingPage: React.FC = () => {
         </div>
       </section>
       <Modal open={loginOpen} onClose={() => setLoginOpen(false)} noBackdrop>
-        <LoginInline onSuccess={(token) => { try { saveToken(token) } catch {}; setLoginOpen(false); nav('/new-chat') }} />
+        <LoginInline onSuccess={(token) => { try { saveToken(token) } catch {}; setLoginOpen(false) }} />
       </Modal>
     </div>
   );
@@ -127,6 +127,7 @@ const LandingPage: React.FC = () => {
 export default LandingPage;
 
 function LoginInline({ onSuccess }: { onSuccess: (token: string) => void }) {
+  const nav = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -149,6 +150,7 @@ function LoginInline({ onSuccess }: { onSuccess: (token: string) => void }) {
       const token = data?.token
       if (!token) throw new Error('Missing token')
       onSuccess(token)
+      nav('/new-chat', { replace: true })
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Login failed')
     } finally { setLoading(false) }
@@ -159,9 +161,35 @@ function LoginInline({ onSuccess }: { onSuccess: (token: string) => void }) {
       if (!res?.credential) return
       try {
         const { data } = await api.post('/auth/sso/google', { id_token: res.credential })
+        try { console.log('SSO /auth/sso/google response (landing):', data) } catch {}
         const token = data?.token
-        if (token) onSuccess(token)
-      } catch {}
+        if (!token) throw new Error('Missing token')
+        onSuccess(token)
+        const isNewUser = data && (data.is_new || data.new_user)
+        const needsSetup = data && (data.needs_setup || (data.profile && data.profile.needs_setup))
+        const needsMobileVerification = data && data.needs_mobile_verification
+        if (isNewUser || needsMobileVerification) {
+          nav('/verify-mobile', {
+            replace: true,
+            state: {
+              ssoData: {
+                token: data.token,
+                user_id: data.user_id,
+                user: {
+                  name: data.user?.name || '',
+                  email: data.user?.email || ''
+                }
+              }
+            }
+          })
+        } else if (needsSetup) {
+          nav('/setup', { replace: true })
+        } else {
+          nav('/new-chat', { replace: true })
+        }
+      } catch (e) {
+        // fallback: do nothing special here; error surfaced via email flow UI if needed
+      }
     }
     const initGsi = () => {
       if (cancelled || !CLIENT_ID) return
@@ -294,6 +322,20 @@ function RollingPrompt({ onAsk }: { onAsk?: (q: string, cat?: string) => void })
     const q = userInput.trim()
     onAsk?.(q, category)
   }
+
+  // Persist draft so landing login can auto-send after auth
+  useEffect(() => {
+    try {
+      const q = userInput.trim()
+      if (q) {
+        localStorage.setItem('lp_draft_query', JSON.stringify({ q, cat: category }))
+      } else {
+        // Clear if empty to avoid stale sends
+        const existing = localStorage.getItem('lp_draft_query')
+        if (existing) localStorage.removeItem('lp_draft_query')
+      }
+    } catch {}
+  }, [userInput, category])
 
   return (
     <div className="mt-8 w-full flex flex-col items-center">
