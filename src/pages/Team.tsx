@@ -1,8 +1,25 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Users, UserCheck, Activity, Briefcase, BarChart3, AlarmClock, IndianRupee } from "lucide-react";
+import DashboardLoader from "../components/DashboardLoader";
 
 export default function TeamDashboardUI() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-neutral-900 dark:to-neutral-950">
+        <DashboardLoader />
+      </div>
+    );
+  }
   const getColorClass = (value: string) => {
     const num = parseFloat(value.replace(/[^0-9.-]/g, ""));
 

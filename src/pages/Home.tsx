@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { api } from "../lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import DashboardLoader from "../components/DashboardLoader";
 import {
   Activity,
   AlertTriangle,
@@ -22,43 +24,114 @@ type Metric = {
   value: string;
 };
 
+// Local dictionary to translate static UI text without relying on the backend
+const UI_DICT: Record<string, Record<string, string>> = {
+  hi: {
+    title_dashboard: 'डैशबोर्ड पेज',
+    goal_progress: 'लक्ष्य प्रगति',
+    journey_text: 'अपने राजस्व लक्ष्य की ओर आपकी यात्रा।',
+    current_mrr: 'वर्तमान MRR',
+    goal_amount: 'लक्ष्य राशि',
+    timeframe: 'समय सीमा',
+    complete: 'पूर्ण',
+    all_metrics: 'सभी डायग्नोज़ मेट्रिक्स',
+    diagnose_roadmap: 'डायग्नोज़ रोडमैप',
+    roadmap1_title: 'ब्रेक ईवन दक्षता सुधारें',
+    roadmap1_desc: 'बिक्री बढ़ाएँ या लागत घटाएँ ताकि BEP कम हो और जल्द लाभ मिले।',
+    roadmap2_title: 'वित्तीय स्थिरता मजबूत करें',
+    roadmap2_desc: 'रनवे बढ़ाएँ, ऑपरेटिंग कैशफ्लो बढ़ाएँ, और तरलता को स्वस्थ रखें।',
+    roadmap3_title: 'सेल्स दक्षता अनुकूलित करें',
+    roadmap3_desc: 'प्रति कर्मचारी राजस्व बढ़ाएँ, CAC पेबैक सुधारें, और LTV/CAC मजबूत करें।',
+    roadmap4_title: 'ऑपरेशंस संरेखण सुधारें',
+    roadmap4_desc: 'डेड स्टॉक कम करें, उत्पादन गति बढ़ाएँ, और टीम लक्ष्यों से संरेखित करें।',
+    metric_1: 'BEP (ब्रेक ईवन पॉइंट)',
+    metric_2: 'कैशफ्लो बनाम शुद्ध लाभ',
+    metric_3: 'कर्मचारी / बिक्री',
+    metric_4: 'टीम / BEP',
+  },
+};
 const DASHBOARD_METRICS: Metric[] = [
-  { id: 1, title: "BEP (Break Even Point)", tag: "S", icon: Gauge, value: "â‚¹3.2L" },
+  { id: 1, title: "BEP (Break Even Point)", tag: "S", icon: Gauge, value: "₹3.2L" },
   { id: 2, title: "Cashflow vs Net Profit", tag: "G", icon: Wallet, value: "1.3x" },
-  { id: 3, title: "Emp / Sales", tag: "S", icon: Divide, value: "â‚¹2.1L / emp" },
-  { id: 4, title: "Team / BEP", tag: "T Â· P", icon: Activity, value: "1.4x" },
+  { id: 3, title: "Emp / Sales", tag: "S", icon: Divide, value: "₹2.1L / emp" },
+  { id: 4, title: "Team / BEP", tag: "T · P", icon: Activity, value: "1.4x" },
   { id: 5, title: "Inventory Turnover vs Stock vs Dead Stock", tag: "P", icon: BarChart3, value: "7.2" },
   { id: 6, title: "LTV vs CAC", tag: "S", icon: PieChart, value: "3.8x" },
   { id: 7, title: "Production vs Conversion Speed", tag: "S", icon: TrendingUp, value: "1.2x" },
   { id: 8, title: "Asset / Debt Ratio", tag: "F", icon: Calculator, value: "1.7" },
   { id: 9, title: "Profit vs BEP", tag: "S", icon: TrendingUp, value: "1.4x" },
   { id: 10, title: "Runway", tag: "F", icon: Gauge, value: "14 months" },
-  { id: 11, title: "Revenue / Sales Executive", tag: "T", icon: BarChart3, value: "â‚¹3.5L" },
+  { id: 11, title: "Revenue / Sales Executive", tag: "T", icon: BarChart3, value: "₹3.5L" },
   { id: 12, title: "CAC Payback Period", tag: "S", icon: TrendingDown, value: "9 months" },
-  { id: 13, title: "ACID Test", tag: "F Â· Liquidity", icon: AlertTriangle, value: "1.1" },
+  { id: 13, title: "ACID Test", tag: "F · Liquidity", icon: AlertTriangle, value: "1.1" },
   { id: 14, title: "Operating Cashflow Margin", tag: "F", icon: Wallet, value: "22%" },
   { id: 15, title: "Budget vs Variance Ratio", tag: "F", icon: BarChart3, value: "91%" },
-  { id: 16, title: "BEP vs 2x (Magical Sales Number)", tag: "E Â· S", icon: Gauge, value: "2.1x" },
+  { id: 16, title: "BEP vs 2x (Magical Sales Number)", tag: "E · S", icon: Gauge, value: "2.1x" },
 ];
 
 export default function DiagnoseDashboardUI() {
+  const [isLoading, setIsLoading] = useState(true);
   const [lang, setLang] = useState<string>(() => {
-    try { return localStorage.getItem('ui_lang') || 'en'; } catch { return 'en' }
+    try {
+      const saved = localStorage.getItem('ui_lang')
+      if (saved) return saved
+    } catch {}
+    // Auto-detect from browser on first load
+    try {
+      const nav = (navigator && (navigator as any).language) as string | undefined
+      const code = (nav || '').toLowerCase().slice(0, 2)
+      if (code === 'hi' || code === 'ta' || code === 'te' || code === 'bn') return code
+    } catch {}
+    return 'en'
   });
   const [t, setT] = useState<Record<string, string>>({});
   const [ready, setReady] = useState<boolean>(false);
 
   const [metricsState, setMetricsState] = useState<Metric[] | null>(null);
+  const [userMeta, setUserMeta] = useState<{ mrr?: number; goal?: number; years?: number } | null>(null);
 
-  
+  // Initial loading animation
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
-  async function translateIfNeeded(_key: string, text: string): Promise<string> {
+  async function translateIfNeeded(key: string, text: string): Promise<string> {
+    // 1) Local dictionary first for instant UI updates
+    const dict = UI_DICT[lang];
+    if (dict && dict[key]) return dict[key];
+    // 2) If English or no key, return original
     if (!lang || lang === 'en') return text;
+    // 3) Try cached UI translations map
     try {
-      const { api } = await import('../lib/api');
-      const res = await api.post('/translate', { text, target: lang });
-      return String(res?.data?.translated || text);
+      const cacheStr = localStorage.getItem(`i18n:home:t:${lang}`);
+      if (cacheStr) {
+        const cache = JSON.parse(cacheStr || '{}') as Record<string, string>;
+        if (cache && cache[key]) return cache[key];
+      }
+    } catch {}
+    // 4) Try cached metrics map when key is metric_* (to keep calls minimal)
+    try {
+      const m = key.match(/^metric_(\d+)$/);
+      if (m) {
+        const id = Number(m[1]);
+        const mStr = localStorage.getItem(`i18n:home:metrics:${lang}`);
+        if (mStr) {
+          const arr = JSON.parse(mStr || '[]') as Array<{ id: number; title: string }>
+          const found = Array.isArray(arr) ? arr.find(x => x.id === id) : undefined;
+          if (found?.title) return found.title;
+        }
+      }
+    } catch {}
+    // 5) Fallback to backend translate endpoint (accepts code or name)
+    try {
+      const { data } = await api.post('/translate', { text, target: lang, source: 'English' });
+      const out = String((data?.translated ?? '').trim() || text);
+      return out;
     } catch {
+      // 6) Network failure → return original text
       return text;
     }
   }
@@ -69,6 +142,9 @@ export default function DiagnoseDashboardUI() {
     setReady(false);
     setT({});
     setMetricsState(null);
+    // Clear any stale caches for this language so we fetch fresh translations
+    try { localStorage.removeItem(`i18n:home:t:${lang}`) } catch {}
+    try { localStorage.removeItem(`i18n:home:metrics:${lang}`) } catch {}
     (async () => {
       const items: Array<[string, string]> = [
         ['title_dashboard', 'Dashboard Page'],
@@ -112,6 +188,29 @@ export default function DiagnoseDashboardUI() {
     return () => { cancelled = true };
   }, [lang]);
 
+  // Load user meta to auto-fill dashboard headline cards
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const { data } = await api.get('/me')
+        const mrr = Number(data?.monthly_revenue ?? NaN)
+        const goal = Number(data?.goal_amount ?? NaN)
+        const years = Number(data?.goal_years ?? NaN)
+        if (!alive) return
+        setUserMeta({
+          mrr: isFinite(mrr) ? mrr : undefined,
+          goal: isFinite(goal) ? goal : undefined,
+          years: isFinite(years) ? years : undefined,
+        })
+      } catch {
+        if (!alive) return
+        setUserMeta(null)
+      }
+    })()
+    return () => { alive = false }
+  }, [])
+
   // Persist chosen language, and react to external changes (chat reply-driven)
   useEffect(() => {
     try { localStorage.setItem('ui_lang', lang) } catch {}
@@ -131,13 +230,22 @@ export default function DiagnoseDashboardUI() {
     };
   }, []);
 
+  // Show loading animation on initial load
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-neutral-900 dark:to-neutral-950">
+        <DashboardLoader />
+      </div>
+    );
+  }
+
   // Block rendering until translations are ready
   if (!ready) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-neutral-900 dark:to-neutral-950 flex items-center justify-center">
         <div className="flex items-center gap-3 text-slate-600 dark:text-slate-300">
           <div className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-neutral-700 border-t-indigo-500 animate-spin" />
-          <span className="text-sm">Applying languageâ€¦</span>
+          <span className="text-sm">Applying language…</span>
         </div>
       </div>
     );
@@ -184,10 +292,10 @@ export default function DiagnoseDashboardUI() {
               className="text-sm rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1"
             >
               <option value="en">English</option>
-              <option value="hi">à¤¹à¤¿à¤‚à¤¦à¥€ (Hindi)</option>
-              <option value="ta">à®¤à®®à®¿à®´à¯ (Tamil)</option>
-              <option value="te">à°¤à±†à°²à±à°—à± (Telugu)</option>
-              <option value="bn">à¦¬à¦¾à¦‚à¦²à¦¾ (Bengali)</option>
+              <option value="hi">हिन्दी (Hindi)</option>
+              <option value="ta">தமிழ் (Tamil)</option>
+              <option value="te">తెలుగు (Telugu)</option>
+              <option value="bn">বাংলা (Bengali)</option>
             </select>
           </div>
         </header>
@@ -225,15 +333,19 @@ export default function DiagnoseDashboardUI() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div className="p-4 rounded-2xl bg-white dark:bg-neutral-800 shadow-sm">
               <p className="text-xs text-slate-500 dark:text-slate-400">{t.current_mrr || 'Current MRR'}</p>
-              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">â‚¹10,000</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                {userMeta?.mrr != null ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(userMeta.mrr) : '₹10,000'}
+              </p>
             </div>
             <div className="p-4 rounded-2xl bg-white dark:bg-neutral-800 shadow-sm">
               <p className="text-xs text-slate-500 dark:text-slate-400">{t.goal_amount || 'Goal Amount'}</p>
-              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">â‚¹1,00,000</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                {userMeta?.goal != null ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(userMeta.goal) : '₹1,00,000'}
+              </p>
             </div>
             <div className="p-4 rounded-2xl bg-white dark:bg-neutral-800 shadow-sm">
               <p className="text-xs text-slate-500 dark:text-slate-400">{t.timeframe || 'Timeframe'}</p>
-              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">3 years</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{userMeta?.years != null ? `${userMeta.years} ${userMeta.years === 1 ? 'year' : 'years'}` : '3 years'}</p>
             </div>
           </div>
         </section>

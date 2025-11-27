@@ -38,6 +38,43 @@ export default function Login() {
     try {
       const { data } = await api.post('/auth/login', { email, password })
       saveToken(data.token)
+      // If a landing draft exists, auto-create a chat and send it immediately; else open latest chat or create one
+      try {
+        const raw = localStorage.getItem('lp_draft_query')
+        if (raw) {
+          const parsed = JSON.parse(raw || '{}') as { q?: string }
+          const q = (parsed?.q || '').trim()
+          if (q) {
+            const created = await api.post('/chat/new', { title: 'New Chat' })
+            const cid = created.data?.chat_id || created.data?.id || created.data?.chat?.id
+            if (cid) {
+              try { localStorage.setItem('pending_thinking_chat', String(cid)) } catch {}
+              // Fire-and-navigate: do not await send to avoid blocking UI
+              api.post('/chat/send', { chat_id: Number(cid), message: q }).catch(() => {})
+              localStorage.removeItem('lp_draft_query')
+              nav(`/chat/${cid}`, { replace: true })
+              return
+            }
+          }
+        }
+        // No draft: try to open latest existing chat
+        try {
+          const { data: list } = await api.get('/chat')
+          const arr = Array.isArray(list) ? list : []
+          if (arr.length > 0 && arr[0]?.id != null) {
+            nav(`/chat/${arr[0].id}`, { replace: true })
+            return
+          }
+        } catch {}
+        // If none exist, create one and open it
+        const created = await api.post('/chat/new', { title: 'New Chat' })
+        const cid = created.data?.chat_id || created.data?.id || created.data?.chat?.id
+        if (cid) {
+          nav(`/chat/${cid}`, { replace: true })
+          return
+        }
+      } catch {}
+      // Fallback
       nav('/new-chat')
     } catch (e: any) {
       setErr(e?.response?.data?.error ?? 'Login failed')
@@ -84,6 +121,40 @@ export default function Login() {
         } else if (needsSetup) {
           nav('/setup', { replace: true })
         } else {
+          // Try to auto-send landing draft if available; otherwise open latest or create new chat
+          try {
+            const raw = localStorage.getItem('lp_draft_query')
+            if (raw) {
+              const parsed = JSON.parse(raw || '{}') as { q?: string }
+              const q = (parsed?.q || '').trim()
+              if (q) {
+                const created = await api.post('/chat/new', { title: 'New Chat' })
+                const cid = created.data?.chat_id || created.data?.id || created.data?.chat?.id
+                if (cid) {
+                  try { localStorage.setItem('pending_thinking_chat', String(cid)) } catch {}
+                  api.post('/chat/send', { chat_id: Number(cid), message: q }).catch(() => {})
+                  localStorage.removeItem('lp_draft_query')
+                  nav(`/chat/${cid}`, { replace: true })
+                  return
+                }
+              }
+            }
+            // No draft: open latest chat if any
+            try {
+              const { data: list } = await api.get('/chat')
+              const arr = Array.isArray(list) ? list : []
+              if (arr.length > 0 && arr[0]?.id != null) {
+                nav(`/chat/${arr[0].id}`, { replace: true })
+                return
+              }
+            } catch {}
+            const created = await api.post('/chat/new', { title: 'New Chat' })
+            const cid = created.data?.chat_id || created.data?.id || created.data?.chat?.id
+            if (cid) {
+              nav(`/chat/${cid}`, { replace: true })
+              return
+            }
+          } catch {}
           nav('/new-chat', { replace: true })
         }
       } catch (e: any) {

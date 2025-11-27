@@ -1,8 +1,27 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { BarChart3, TrendingUp, DollarSign, Users, PieChart, Activity } from "lucide-react";
+import DashboardLoader from "../components/DashboardLoader";
 
 export default function SalesDashboardUI() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Simulate data loading
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-neutral-900 dark:to-neutral-950">
+        <DashboardLoader />
+      </div>
+    );
+  }
   const getColorClass = (value) => {
     const num = parseFloat(value.replace(/[^0-9.-]/g, ""));
 

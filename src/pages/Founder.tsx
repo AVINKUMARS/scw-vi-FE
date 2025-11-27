@@ -11,6 +11,7 @@ import {
   computeSectionAScore,
 } from '../data/founderAssessment'
 import Button from '../components/Button'
+import DashboardLoader from '../components/DashboardLoader'
 
 type Answers = Record<number, OptionKey>
 
@@ -172,11 +173,20 @@ function getBlueprint(score: number | null) {
 }
 
 export default function Founder() {
+  const [isLoading, setIsLoading] = React.useState(true)
   const [answers, setAnswers] = React.useState<Answers>({})
   const [activeSectionId, setActiveSectionId] = React.useState<
     'A' | 'B' | 'C' | 'D' | null
   >(null)
   const [sectionASelected, setSectionASelected] = React.useState<string[]>([])
+
+  // Initial loading animation
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false)
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [])
 
   // Shuffle Section A keywords once (per mount)
   const shuffledSectionAKeywords = React.useMemo(() => {
@@ -313,6 +323,14 @@ export default function Founder() {
       }
     } catch {}
   }, [overallScore])
+
+  if (isLoading) {
+    return (
+      <div className="h-full min-h-screen bg-gray-50 dark:bg-neutral-900">
+        <DashboardLoader />
+      </div>
+    )
+  }
 
   return (
     <div className="h-full min-h-0 bg-gray-50 dark:bg-neutral-900 py-8 px-4 sm:px-6 lg:px-8">

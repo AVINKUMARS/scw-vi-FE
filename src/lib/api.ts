@@ -44,9 +44,14 @@ api.interceptors.response.use(
     try {
       const url = String(res?.config?.url || '');
       if (/\/chat\/send(\b|$)/.test(url) || /\/chat\/send-gemini(\b|$)/.test(url)) {
-        const reply = String((res?.data as any)?.reply || '');
-        if (reply) {
-          const lang = detectLangCodeFromText(reply);
+        const body = (res?.data as any) || {};
+        const reply = String(body?.reply || '');
+        // Prefer server-provided language if present; else detect from text
+        let lang = String(body?.lang || '').trim();
+        if (!lang) {
+          lang = detectLangCodeFromText(reply);
+        }
+        if (lang) {
           try { localStorage.setItem('ui_lang', lang); } catch {}
           try { window.dispatchEvent(new CustomEvent('ui_lang_changed', { detail: { lang } })); } catch {}
         }

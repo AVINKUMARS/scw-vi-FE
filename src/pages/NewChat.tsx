@@ -56,6 +56,23 @@ export default function NewChat() {
         const id = data?.id || data?.chat_id || data?.chat?.id
         if (!id) throw new Error('Invalid response from /chat/new')
         setChatId(String(id))
+        // If a landing page draft exists, auto-send it now and clear the draft
+        try {
+          const raw = localStorage.getItem('lp_draft_query')
+          if (raw) {
+            const parsed = JSON.parse(raw || '{}') as { q?: string; cat?: string }
+            const q = (parsed?.q || '').trim()
+            if (q) {
+              const userMsg: Msg = { id: crypto.randomUUID(), role: 'user', content: q }
+              setMessages((m) => [...m, userMsg])
+              // Fire and forget; backend will reply and interceptor will set language if needed
+              try {
+                await api.post('/chat/send', { chat_id: Number(id), message: q })
+              } catch {}
+              localStorage.removeItem('lp_draft_query')
+            }
+          }
+        } catch {}
         try {
           const res = await api.get(`/chat/${id}/messages`)
           const raw = res.data || []

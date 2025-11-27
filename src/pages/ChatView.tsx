@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import {
   X,
   Plus,
@@ -30,8 +30,15 @@ import {
 } from 'lucide-react'
 import { api } from '../lib/api'
 import Markdown from '../components/Markdown'
+import SalesDataCard from '../components/SalesDataCard'
 
-type Msg = { id: string; role: 'user' | 'assistant'; content: string }
+type Msg = { 
+  id: string; 
+  role: 'user' | 'assistant'; 
+  content: string;
+  tag?: string;
+  metadata?: any;
+}
 
 // --- Constants & Helpers ---
 const STARTER_QUESTIONS = [
@@ -80,7 +87,7 @@ function ThinkingAnimation() {
   )
 }
 
-function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent }: { msg: Msg; onEdit: (text: string) => void; onRegenerate?: () => void; onMaximize: () => void; onPresent: () => void }) {
+function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent, onSalesDataSubmit }: { msg: Msg; onEdit: (text: string) => void; onRegenerate?: () => void; onMaximize: () => void; onPresent: () => void; onSalesDataSubmit?: (data: any[]) => void }) {
   const isUser = msg.role === 'user'
   const [liked, setLiked] = useState<boolean | null>(null)
   const [showFeedback, setShowFeedback] = useState(false)
@@ -150,6 +157,7 @@ function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent }: { msg: Msg
   const handleDislike = () => { const newState = liked === false ? null : false; setLiked(newState); setShowFeedback(newState === false); }
   const submitFeedback = () => { setFeedbackSubmitted(true); setTimeout(() => { setShowFeedback(false); setFeedbackSubmitted(false); setFeedback(''); }, 1500); }
 
+  const salesFormPrompt = (msg as any)?.metadata?.forms?.sales
   return (
     <div className={`group flex flex-col py-2 ${isUser ? 'items-end' : 'items-start'}`}>
       <div
@@ -161,6 +169,13 @@ function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent }: { msg: Msg
       >
         {isUser ? <span className="whitespace-pre-wrap font-light leading-relaxed">{msg.content}</span> : <Markdown>{msg.content}</Markdown>}
       </div>
+
+      {/* Sales Data Card - show only when server provides forms.sales */}
+      {!isUser && onSalesDataSubmit && salesFormPrompt && (
+        <div className="mt-3 w-full flex justify-start">
+          <SalesDataCard prompt={salesFormPrompt} onSubmit={onSalesDataSubmit} />
+        </div>
+      )}
 
       {isUser && (
         <div className="mt-1 px-1 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -230,6 +245,7 @@ import ChatInput from '../components/ChatInput';
 export default function ChatView() {
 
   const { id } = useParams()
+  const location = useLocation()
 
   const chatId = id ? String(id) : null
 
@@ -240,6 +256,7 @@ export default function ChatView() {
   const [loading, setLoading] = useState(false)
 
   const [files, setFiles] = useState<File[]>([])
+  const [pendingThinking, setPendingThinking] = useState(false)
 
   const [_error, setError] = useState<string | null>(null)
 
@@ -413,7 +430,11 @@ export default function ChatView() {
 
             role: (m.role ?? m.sender ?? 'assistant').toLowerCase() === 'user' ? 'user' : 'assistant',
 
-            content: String(m.content ?? m.text ?? m.message ?? '')
+            content: String(m.content ?? m.text ?? m.message ?? ''),
+
+            tag: m.tag,
+
+            metadata: m.metadata || m
 
           }))
 
@@ -428,6 +449,44 @@ export default function ChatView() {
 
 
   useEffect(() => { scrollToBottom() }, [messages.length, loading])
+
+  // If login triggered an auto-send, show a Thinking animation and poll briefly for the assistant reply
+  useEffect(() => {
+    if (!chatId) return
+    let alive = true
+    try {
+      const pending = localStorage.getItem('pending_thinking_chat')
+      const shouldThink = pending && pending === String(chatId)
+      setPendingThinking(!!shouldThink)
+      if (shouldThink) setLoading(true)
+      if (!shouldThink) return
+    } catch {}
+    const iv = window.setInterval(async () => {
+      if (!alive) return
+      try {
+        const res = await api.get(`/chat/${chatId}/messages`)
+        const raw = res.data || []
+        const mapped: Msg[] = (Array.isArray(raw) ? raw : []).map((m: any, idx: number) => ({
+          id: String(m.id ?? idx),
+          role: (m.role ?? m.sender ?? 'assistant').toLowerCase() === 'user' ? 'user' : 'assistant',
+          content: String(m.content ?? m.text ?? m.message ?? ''),
+          tag: m.tag,
+          metadata: m.metadata || m
+        }))
+        setMessages(mapped)
+        const hasAssistant = mapped.some(m => m.role === 'assistant')
+        if (hasAssistant) {
+          try { localStorage.removeItem('pending_thinking_chat') } catch {}
+          setPendingThinking(false)
+          setLoading(false)
+          window.clearInterval(iv)
+        }
+      } catch {
+        // ignore fetch errors during polling
+      }
+    }, 1500)
+    return () => { alive = false; window.clearInterval(iv) }
+  }, [chatId])
 
 
 
@@ -567,8 +626,16 @@ export default function ChatView() {
       const { data } = await api.post('/chat/send', form)
 
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
+      const tag = data?.tag ?? undefined
+      const metadata = data || {}
 
-      if (replyText) setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: String(replyText) }])
+      if (replyText) setMessages((m) => [...m, { 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        content: String(replyText),
+        tag,
+        metadata
+      }])
 
     } catch (e) { console.error(e) } finally { setLoading(false) }
 
@@ -601,8 +668,16 @@ export default function ChatView() {
       const { data } = await api.post('/chat/send', form)
 
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
+      const tag = data?.tag ?? undefined
+      const metadata = data || {}
 
-      if (replyText) setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: String(replyText) }])
+      if (replyText) setMessages((m) => [...m, { 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        content: String(replyText),
+        tag,
+        metadata
+      }])
 
       if (data?.ingestions && Array.isArray(data.ingestions)) {
 
@@ -624,7 +699,44 @@ export default function ChatView() {
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }
 
+  const handleSalesDataSubmit = async (salesData: Array<any>) => {
+    if (!chatId || loading) return
+    // normalize possible key variants from legacy UI
+    const norm = salesData.map(r => ({
+      period: r.period,
+      total_revenue: r.total_revenue ?? r.revenue,
+      bill_count: r.bill_count ?? r.billCount,
+    }))
+    const months = norm.length
+    const message = `My last ${months} months of sales`
+    const userMsg: Msg = { id: crypto.randomUUID(), role: 'user', content: message }
+    setMessages((m) => [...m, userMsg])
+    setLoading(true)
 
+    try {
+      const { data } = await api.post('/chat/send', {
+        chat_id: Number(chatId),
+        message,
+        sales_form: norm.map(r => ({ period: r.period, total_revenue: r.total_revenue, bill_count: r.bill_count }))
+      })
+      const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
+      const tag = data?.tag ?? undefined
+      const metadata = data || {}
+
+      if (replyText) setMessages((m) => [...m, { 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        content: String(replyText),
+        tag,
+        metadata
+      }])
+      setSalesPrompt(null)
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? e?.message ?? 'Failed to submit sales data')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
 
@@ -827,6 +939,8 @@ export default function ChatView() {
                 onPresent={() => setPresentingMsg(m)}
 
                 onRegenerate={(!loading && m.role === 'assistant' && idx === messages.length - 1) ? handleRegenerate : undefined}
+
+                onSalesDataSubmit={handleSalesDataSubmit}
 
               />
 
