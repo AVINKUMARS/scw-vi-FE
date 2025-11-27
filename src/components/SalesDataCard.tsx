@@ -3,8 +3,10 @@ import { api } from '../lib/api'
 
 type PrefillEntry = { period: string; total_revenue?: number; bill_count?: number }
 
-export default function SalesDataCard({ prompt, onSubmit }: {
+export default function SalesDataCard({ prompt, initial, disabledSubmit, onSubmit }: {
   prompt?: { period?: string; months_required?: number; description?: string; prefill?: PrefillEntry[] }
+  initial?: PrefillEntry[]
+  disabledSubmit?: boolean
   onSubmit: (rows: any[]) => void
 }) {
   if (!prompt) {
@@ -13,8 +15,9 @@ export default function SalesDataCard({ prompt, onSubmit }: {
     const now = new Date()
     // Use last 3 months (excluding current month)
     const base: PrefillEntry[] = [1, 2, 3].map(i => ({ period: mkPeriod(new Date(now.getFullYear(), now.getMonth() - i, 1)) }))
-    const [rows, setRows] = useState<PrefillEntry[]>(base)
+    const [rows, setRows] = useState<PrefillEntry[]>(initial && initial.length ? initial.map(r => ({ ...r })) : base)
     const [submitting, setSubmitting] = useState(false)
+    useEffect(() => { if (initial && initial.length) setRows(initial.map(r => ({ ...r }))) }, [initial?.length])
 
     const setField = (idx: number, key: keyof PrefillEntry, val: string) => {
       setRows(prev => prev.map((r, i) => i === idx ? {
@@ -22,10 +25,12 @@ export default function SalesDataCard({ prompt, onSubmit }: {
         [key]: key === 'period' ? val : (val === '' ? undefined : Number(val))
       } : r))
     }
-    const canSubmit = rows.length > 0 && rows.every(r => r.period && typeof r.bill_count === 'number' && !Number.isNaN(r.bill_count))
+    const canSubmit = !disabledSubmit && rows.length > 0 && rows.every(r => r.period && typeof r.bill_count === 'number' && !Number.isNaN(r.bill_count))
 
     // Auto-fill last month's total_revenue from backend if available
+    // Skip auto-fill if initial submitted data is provided (history view)
     useEffect(() => {
+      if (initial && initial.length) return
       (async () => {
         try {
           const last = new Date()
@@ -52,8 +57,11 @@ export default function SalesDataCard({ prompt, onSubmit }: {
     }, [])
 
     return (
-      <div className="max-w-[720px] w-full p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm">
-        <div className="text-sm font-semibold mb-3">Provide recent sales</div>
+      <div className="max-w-[720px] w-full mb-3">
+        <div className="rounded-xl p-[1px] bg-gradient-to-r from-brand1 via-brand2 to-brand3 shadow-gradient">
+          <div className="relative overflow-hidden rounded-xl bg-neutral-50 dark:bg-neutral-900 p-4 pt-5">
+            <div className="absolute top-0 left-0 h-1 w-full rounded-t-xl bg-gradient-to-r from-brand1 via-brand2 to-brand3" />
+            <div className="text-sm font-semibold mb-3 bg-gradient-to-r from-brand1 via-brand2 to-brand3 bg-clip-text text-transparent">Provide recent sales</div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -67,23 +75,22 @@ export default function SalesDataCard({ prompt, onSubmit }: {
               {rows.map((r, idx) => (
                 <tr key={idx} className="border-t border-neutral-100 dark:border-neutral-800">
                   <td className="py-2 pr-2 w-40">
-                    <input value={r.period || ''} onChange={e => setField(idx, 'period', e.target.value)} placeholder="2025-11" className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1" />
+                    <input value={r.period || ''} onChange={e => setField(idx, 'period', e.target.value)} placeholder="2025-11" disabled={!!disabledSubmit} className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand1/40 focus:border-brand1/50" />
                   </td>
                   <td className="py-2 pr-2 w-40">
-                    <input type="number" inputMode="decimal" value={typeof r.total_revenue === 'number' ? r.total_revenue : ''} onChange={e => setField(idx, 'total_revenue', e.target.value)} placeholder="10000" className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1" />
+                    <input type="number" inputMode="decimal" value={typeof r.total_revenue === 'number' ? r.total_revenue : ''} onChange={e => setField(idx, 'total_revenue', e.target.value)} placeholder="10000" disabled={!!disabledSubmit} className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand2/40 focus:border-brand2/50" />
                   </td>
                   <td className="py-2 pr-2 w-40">
-                    <input type="number" inputMode="numeric" value={typeof r.bill_count === 'number' ? r.bill_count : ''} onChange={e => setField(idx, 'bill_count', e.target.value)} placeholder="120" className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1" />
+                    <input type="number" inputMode="numeric" value={typeof r.bill_count === 'number' ? r.bill_count : ''} onChange={e => setField(idx, 'bill_count', e.target.value)} placeholder="120" disabled={!!disabledSubmit} className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand3/40 focus:border-brand3/50" />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="mt-3 flex items-center justify-between">
-          <button onClick={() => setRows(prev => [...prev, { period: mkPeriod(now) }])} className="px-2 py-1 text-xs rounded-md border border-neutral-300 dark:border-neutral-700">Add Month</button>
+        <div className="mt-3 flex items-center justify-end">
           <button
-            disabled={submitting || !canSubmit}
+            disabled={disabledSubmit || submitting || !canSubmit}
             onClick={async () => {
               if (!canSubmit) return
               try {
@@ -97,6 +104,8 @@ export default function SalesDataCard({ prompt, onSubmit }: {
             {submitting ? 'Submitting…' : 'Submit'}
           </button>
         </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -108,8 +117,9 @@ export default function SalesDataCard({ prompt, onSubmit }: {
     return pf.slice(0, monthsRequired)
   }, [prompt?.prefill, monthsRequired])
 
-  const [rows, setRows] = useState<PrefillEntry[]>(() => baseRows.map(r => ({ ...r })))
+  const [rows, setRows] = useState<PrefillEntry[]>(() => (initial && initial.length ? initial.map(r => ({ ...r })) : baseRows.map(r => ({ ...r }))))
   const [submitting, setSubmitting] = useState(false)
+  useEffect(() => { if (initial && initial.length) setRows(initial.map(r => ({ ...r }))) }, [initial?.length])
 
   const updateBill = (idx: number, val: string) => {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, bill_count: val === '' ? undefined : Number(val) } : r))
@@ -118,16 +128,19 @@ export default function SalesDataCard({ prompt, onSubmit }: {
   const canSubmit = rows.length > 0 && rows.every(r => typeof r.bill_count === 'number' && !Number.isNaN(r.bill_count))
 
   return (
-    <div className="max-w-[720px] mb-3 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <div className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Sales Data Needed</div>
-          {prompt?.description && (
-            <div className="text-xs text-neutral-500 mt-0.5">{prompt.description}</div>
-          )}
-        </div>
-        <div className="text-xs text-neutral-500">Months: {monthsRequired}</div>
-      </div>
+    <div className="max-w-[720px] mb-3">
+      <div className="rounded-xl p-[1px] bg-gradient-to-r from-brand1 via-brand2 to-brand3 shadow-gradient">
+        <div className="relative overflow-hidden rounded-xl bg-neutral-50 dark:bg-neutral-900 p-4 pt-5">
+          <div className="absolute top-0 left-0 h-1 w-full rounded-t-xl bg-gradient-to-r from-brand1 via-brand2 to-brand3" />
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <div className="text-sm font-semibold bg-gradient-to-r from-brand1 via-brand2 to-brand3 bg-clip-text text-transparent">Sales Data Needed</div>
+              {prompt?.description && (
+                <div className="text-xs text-neutral-500 mt-0.5">{prompt.description}</div>
+              )}
+            </div>
+            <div className="text-xs text-neutral-500">Months: {monthsRequired}</div>
+          </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -149,7 +162,8 @@ export default function SalesDataCard({ prompt, onSubmit }: {
                     value={typeof r.total_revenue === 'number' ? r.total_revenue : ''}
                     onChange={e => setRows(prev => prev.map((it, i) => i === idx ? { ...it, total_revenue: e.target.value === '' ? undefined : Number(e.target.value) } : it))}
                     placeholder="Enter revenue"
-                    className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1"
+                    className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand2/40 focus:border-brand2/50"
+                    disabled={!!disabledSubmit}
                   />
                 </td>
                 <td className="py-2 pr-2 w-40">
@@ -160,7 +174,8 @@ export default function SalesDataCard({ prompt, onSubmit }: {
                     value={typeof r.bill_count === 'number' ? r.bill_count : ''}
                     onChange={e => updateBill(idx, e.target.value)}
                     placeholder="Enter bills"
-                    className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1"
+                    className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand3/40 focus:border-brand3/50"
+                    disabled={!!disabledSubmit}
                   />
                 </td>
               </tr>
@@ -170,7 +185,7 @@ export default function SalesDataCard({ prompt, onSubmit }: {
       </div>
       <div className="mt-3 flex items-center justify-end gap-2">
         <button
-          disabled={submitting || !canSubmit}
+          disabled={disabledSubmit || submitting || !canSubmit}
           onClick={async () => {
             if (!canSubmit) return
             try {
@@ -183,6 +198,8 @@ export default function SalesDataCard({ prompt, onSubmit }: {
         >
           {submitting ? 'Submitting…' : 'Submit'}
         </button>
+      </div>
+        </div>
       </div>
     </div>
   )

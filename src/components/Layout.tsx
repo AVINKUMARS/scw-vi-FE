@@ -28,6 +28,8 @@ export default function Layout({ children }: { children?: ReactNode }) {
     const p = path.replace(/\/$/, '')
     // Hide split only on dedicated chat routes
     if (p === '/new-chat' || p.startsWith('/chat/')) return false
+    // Do not show embedded chat on Profile page
+    if (p === '/profile' || p.startsWith('/profile')) return false
     return true
   }, [path])
 

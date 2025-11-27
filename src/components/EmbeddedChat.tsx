@@ -7,7 +7,6 @@ import {
   ThumbsDown,
   Copy,
   Check,
-  Share2,
   Pencil,
   RotateCcw,
   Volume2,
@@ -25,12 +24,14 @@ import { api } from '../lib/api'
 import Markdown from '../components/Markdown'
 import SalesDataCard from '../components/SalesDataCard'
 
-type Msg = { 
-  id: string; 
-  role: 'user' | 'assistant'; 
+type Msg = {
+  id: string;
+  role: 'user' | 'assistant';
   content: string;
   tag?: string;
   metadata?: any;
+  form_type?: string;
+  form_data?: any[];
 }
 
 const getLanguageFromText = (text: string): string => {
@@ -59,7 +60,7 @@ function ThinkingAnimation() {
   )
 }
 
-function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent, onSalesDataSubmit }: { msg: Msg; onEdit: (text: string) => void; onRegenerate?: () => void; onMaximize: () => void; onPresent: () => void; onSalesDataSubmit?: (data: any[]) => void }) {
+function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent, onSalesDataSubmit, salesSubmitting, initialSales, disabledSalesSubmit }: { msg: Msg; onEdit: (text: string) => void; onRegenerate?: () => void; onMaximize: () => void; onPresent: () => void; onSalesDataSubmit?: (data: any[], msgId: string) => void; salesSubmitting?: Record<string, boolean>; initialSales?: Array<{ period: string; total_revenue?: number; bill_count?: number }>; disabledSalesSubmit?: boolean }) {
   const isUser = msg.role === 'user'
   const [liked, setLiked] = useState<boolean | null>(null)
   const [showFeedback, setShowFeedback] = useState(false)
@@ -142,10 +143,13 @@ function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent, onSalesDataS
         {isUser ? <span className="whitespace-pre-wrap font-light leading-relaxed">{msg.content}</span> : <Markdown>{msg.content}</Markdown>}
       </div>
 
-      {/* Sales Data Card - show only when server provides forms.sales */}
-      {!isUser && onSalesDataSubmit && salesFormPrompt && (
+      {/* Sales Data Card - show when server provides forms.sales or when history includes a submitted sales form */}
+      {!isUser && onSalesDataSubmit && (salesFormPrompt || (initialSales && initialSales.length)) && (
         <div className="mt-3 w-full flex justify-start">
-          <SalesDataCard prompt={salesFormPrompt} onSubmit={onSalesDataSubmit} />
+          <div className="max-w-[520px]">
+            <SalesDataCard prompt={salesFormPrompt} initial={initialSales as any} disabledSubmit={disabledSalesSubmit} onSubmit={(rows) => onSalesDataSubmit(rows, msg.id)} />
+            {salesSubmitting?.[msg.id] && <div className="mt-2"><ThinkingAnimation /></div>}
+          </div>
         </div>
       )}
 
@@ -225,6 +229,7 @@ export default function EmbeddedChat() {
   const [focusedMsg, setFocusedMsg] = useState<Msg | null>(null)
   const [presentingMsg, setPresentingMsg] = useState<Msg | null>(null)
   const [currentSlide, setCurrentSlide] = useState(0)
+  const [salesSubmittingMap, setSalesSubmittingMap] = useState<Record<string, boolean>>({})
   
   const canSend = useMemo(() => (input.trim().length > 0 || files.length > 0) && !loading && !!chatId, [input, files.length, loading, chatId])
 
@@ -308,7 +313,9 @@ export default function EmbeddedChat() {
           role: (m.role ?? m.sender ?? 'assistant').toLowerCase() === 'user' ? 'user' : 'assistant',
           content: String(m.content ?? m.text ?? m.message ?? ''),
           tag: m.tag,
-          metadata: m.metadata || m
+          metadata: m.metadata || m,
+          form_type: m.form_type,
+          form_data: Array.isArray(m.form_data) ? m.form_data : undefined,
         }))
         setMessages(mapped)
         try { localStorage.setItem('last_chat_id', String(chatId)) } catch {}
@@ -339,9 +346,7 @@ export default function EmbeddedChat() {
     if (!lastUserMsg) return
     setLoading(true)
     try {
-      const form = new FormData()
-      form.append('chat_id', chatId); form.append('message', lastUserMsg.content)
-      const { data } = await api.post('/chat/send', form)
+      const { data } = await api.post('/chat/send', { chat_id: Number(chatId), message: lastUserMsg.content })
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
       const tag = data?.tag ?? undefined
       const metadata = data || {}
@@ -349,13 +354,11 @@ export default function EmbeddedChat() {
     } catch (e) { console.error(e) } finally { setLoading(false) }
   }
 
-  const handleSalesDataSubmit = async (salesData: any[]) => {
-    if (!chatId || loading) return
+  const handleSalesDataSubmit = async (salesData: any[], sourceMsgId?: string) => {
+    if (!chatId) return
     const norm = salesData.map(r => ({ period: r.period, total_revenue: r.total_revenue ?? r.revenue, bill_count: r.bill_count ?? r.billCount }))
     const message = `My last ${norm.length} months of sales`
-    const userMsg: Msg = { id: crypto.randomUUID(), role: 'user', content: message }
-    setMessages((m) => [...m, userMsg])
-    setLoading(true)
+    if (sourceMsgId) setSalesSubmittingMap(prev => ({ ...prev, [sourceMsgId]: true }))
     try {
       const { data } = await api.post('/chat/send', { chat_id: Number(chatId), message, sales_form: norm })
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
@@ -365,7 +368,7 @@ export default function EmbeddedChat() {
     } catch (e: any) {
       setError(e?.response?.data?.error ?? e?.message ?? 'Failed to submit sales data')
     } finally {
-      setLoading(false)
+      if (sourceMsgId) setSalesSubmittingMap(prev => ({ ...prev, [sourceMsgId]: false }))
     }
   }
 
@@ -377,10 +380,7 @@ export default function EmbeddedChat() {
     setInput(''); setLoading(true)
     const filesToSend = [...files]; setFiles([]);
     try {
-      const form = new FormData()
-      form.append('chat_id', chatId); form.append('message', content)
-      for (const f of filesToSend) form.append('file', f)
-      const { data } = await api.post('/chat/send', form)
+      const { data } = await api.post('/chat/send', { chat_id: Number(chatId), message: content })
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
       const tag = data?.tag ?? undefined
       const metadata = data || {}
@@ -472,7 +472,11 @@ export default function EmbeddedChat() {
       <div className="relative flex-1 min-h-0" style={{ background: 'var(--bg)' }}>
         <div ref={listRef} onScroll={handleScroll} className="absolute inset-0 overflow-auto no-scrollbar pane-scroll p-3">
           <div className="max-w-[880px] mx-auto space-y-6 relative">
-            {messages.map((m, idx) => (
+          {messages.map((m, idx) => {
+            const next = messages[idx + 1]
+            const initialSales = (m.role === 'assistant' && next && next.role === 'user' && (next as any).form_type === 'sales' && Array.isArray((next as any).form_data)) ? (next as any).form_data : undefined
+            const disabledSalesSubmit = !!initialSales
+            return (
               <Bubble
                 key={m.id}
                 msg={m}
@@ -481,8 +485,11 @@ export default function EmbeddedChat() {
                 onPresent={() => setPresentingMsg(m)}
                 onRegenerate={(!loading && m.role === 'assistant' && idx === messages.length - 1) ? handleRegenerate : undefined}
                 onSalesDataSubmit={handleSalesDataSubmit}
+                salesSubmitting={salesSubmittingMap}
+                {...(initialSales ? { initialSales, disabledSalesSubmit } : {})}
               />
-            ))}
+            )
+          })}
             {loading && <ThinkingAnimation />}
           </div>
           {error && (

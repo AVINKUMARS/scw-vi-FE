@@ -38,6 +38,8 @@ type Msg = {
   content: string;
   tag?: string;
   metadata?: any;
+  form_type?: string;
+  form_data?: any[];
 }
 
 // --- Constants & Helpers ---
@@ -87,7 +89,7 @@ function ThinkingAnimation() {
   )
 }
 
-function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent, onSalesDataSubmit }: { msg: Msg; onEdit: (text: string) => void; onRegenerate?: () => void; onMaximize: () => void; onPresent: () => void; onSalesDataSubmit?: (data: any[]) => void }) {
+function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent, onSalesDataSubmit, salesSubmitting, initialSales, disabledSalesSubmit }: { msg: Msg; onEdit: (text: string) => void; onRegenerate?: () => void; onMaximize: () => void; onPresent: () => void; onSalesDataSubmit?: (data: any[], msgId: string) => void; salesSubmitting?: Record<string, boolean>; initialSales?: Array<{ period: string; total_revenue?: number; bill_count?: number }>; disabledSalesSubmit?: boolean }) {
   const isUser = msg.role === 'user'
   const [liked, setLiked] = useState<boolean | null>(null)
   const [showFeedback, setShowFeedback] = useState(false)
@@ -171,9 +173,12 @@ function Bubble({ msg, onEdit, onRegenerate, onMaximize, onPresent, onSalesDataS
       </div>
 
       {/* Sales Data Card - show only when server provides forms.sales */}
-      {!isUser && onSalesDataSubmit && salesFormPrompt && (
+      {!isUser && onSalesDataSubmit && (salesFormPrompt || (initialSales && initialSales.length)) && (
         <div className="mt-3 w-full flex justify-start">
-          <SalesDataCard prompt={salesFormPrompt} onSubmit={onSalesDataSubmit} />
+          <div>
+            <SalesDataCard prompt={salesFormPrompt} initial={initialSales as any} disabledSubmit={disabledSalesSubmit} onSubmit={(rows) => onSalesDataSubmit(rows, msg.id)} />
+            {salesSubmitting?.[msg.id] && <div className="mt-2"><ThinkingAnimation /></div>}
+          </div>
         </div>
       )}
 
@@ -265,6 +270,7 @@ export default function ChatView() {
   const [showSlashMenu, setShowSlashMenu] = useState(false)
 
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [salesSubmittingMap, setSalesSubmittingMap] = useState<Record<string, boolean>>({})
 
 
 
@@ -425,17 +431,13 @@ export default function ChatView() {
           const raw = res.data || []
 
           const mapped: Msg[] = (Array.isArray(raw) ? raw : []).map((m: any, idx: number) => ({
-
             id: String(m.id ?? idx),
-
             role: (m.role ?? m.sender ?? 'assistant').toLowerCase() === 'user' ? 'user' : 'assistant',
-
             content: String(m.content ?? m.text ?? m.message ?? ''),
-
             tag: m.tag,
-
-            metadata: m.metadata || m
-
+            metadata: m.metadata || m,
+            form_type: m.form_type,
+            form_data: Array.isArray(m.form_data) ? m.form_data : undefined,
           }))
 
           setMessages(mapped)
@@ -471,7 +473,9 @@ export default function ChatView() {
           role: (m.role ?? m.sender ?? 'assistant').toLowerCase() === 'user' ? 'user' : 'assistant',
           content: String(m.content ?? m.text ?? m.message ?? ''),
           tag: m.tag,
-          metadata: m.metadata || m
+          metadata: m.metadata || m,
+          form_type: m.form_type,
+          form_data: Array.isArray(m.form_data) ? m.form_data : undefined,
         }))
         setMessages(mapped)
         const hasAssistant = mapped.some(m => m.role === 'assistant')
@@ -618,12 +622,7 @@ export default function ChatView() {
     setLoading(true)
 
     try {
-
-      const form = new FormData()
-
-      form.append('chat_id', chatId); form.append('message', lastUserMsg.content)
-
-      const { data } = await api.post('/chat/send', form)
+      const { data } = await api.post('/chat/send', { chat_id: Number(chatId), message: lastUserMsg.content })
 
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
       const tag = data?.tag ?? undefined
@@ -658,14 +657,8 @@ export default function ChatView() {
     const filesToSend = [...files]; setFiles([]);
 
     try {
-
-      const form = new FormData()
-
-      form.append('chat_id', chatId); form.append('message', content)
-
-      for (const f of filesToSend) form.append('file', f)
-
-      const { data } = await api.post('/chat/send', form)
+      // JSON body per backend expectations
+      const { data } = await api.post('/chat/send', { chat_id: Number(chatId), message: content })
 
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
       const tag = data?.tag ?? undefined
@@ -699,24 +692,21 @@ export default function ChatView() {
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }
 
-  const handleSalesDataSubmit = async (salesData: Array<any>) => {
-    if (!chatId || loading) return
+  const handleSalesDataSubmit = async (salesData: Array<any>, sourceMsgId?: string) => {
+    if (!chatId) return
     // normalize possible key variants from legacy UI
     const norm = salesData.map(r => ({
       period: r.period,
       total_revenue: r.total_revenue ?? r.revenue,
       bill_count: r.bill_count ?? r.billCount,
     }))
-    const months = norm.length
-    const message = `My last ${months} months of sales`
-    const userMsg: Msg = { id: crypto.randomUUID(), role: 'user', content: message }
-    setMessages((m) => [...m, userMsg])
-    setLoading(true)
+    // Indicate local thinking state under the card; do not append a user message
+    if (sourceMsgId) setSalesSubmittingMap(prev => ({ ...prev, [sourceMsgId]: true }))
 
     try {
       const { data } = await api.post('/chat/send', {
         chat_id: Number(chatId),
-        message,
+        message: `My last ${norm.length} months of sales`,
         sales_form: norm.map(r => ({ period: r.period, total_revenue: r.total_revenue, bill_count: r.bill_count }))
       })
       const replyText = data?.reply ?? data?.answer ?? data?.message ?? data?.content
@@ -730,11 +720,10 @@ export default function ChatView() {
         tag,
         metadata
       }])
-      setSalesPrompt(null)
     } catch (e: any) {
       setError(e?.response?.data?.error ?? e?.message ?? 'Failed to submit sales data')
     } finally {
-      setLoading(false)
+      if (sourceMsgId) setSalesSubmittingMap(prev => ({ ...prev, [sourceMsgId]: false }))
     }
   }
 
@@ -924,27 +913,25 @@ export default function ChatView() {
 
           <div className="max-w-[880px] mx-auto pb-6 space-y-6 relative">
 
-            {messages.map((m, idx) => (
-
-              <Bubble
-
-                key={m.id}
-
-                msg={m}
-
-                onEdit={handleEdit}
-
-                onMaximize={() => setFocusedMsg(m)}
-
-                onPresent={() => setPresentingMsg(m)}
-
-                onRegenerate={(!loading && m.role === 'assistant' && idx === messages.length - 1) ? handleRegenerate : undefined}
-
-                onSalesDataSubmit={handleSalesDataSubmit}
-
-              />
-
-            ))}
+            {messages.map((m, idx) => {
+              const next = messages[idx + 1]
+              const initialSales = (m.role === 'assistant' && next && next.role === 'user' && next.form_type === 'sales' && Array.isArray(next.form_data)) ? next.form_data : undefined
+              const disabledSalesSubmit = !!initialSales
+              return (
+                <Bubble
+                  key={m.id}
+                  msg={m}
+                  onEdit={handleEdit}
+                  onMaximize={() => setFocusedMsg(m)}
+                  onPresent={() => setPresentingMsg(m)}
+                  onRegenerate={(!loading && m.role === 'assistant' && idx === messages.length - 1) ? handleRegenerate : undefined}
+                  onSalesDataSubmit={handleSalesDataSubmit}
+                  salesSubmitting={salesSubmittingMap}
+                  initialSales={initialSales as any}
+                  disabledSalesSubmit={disabledSalesSubmit}
+                />
+              )
+            })}
 
             {loading && <ThinkingAnimation />}
 
